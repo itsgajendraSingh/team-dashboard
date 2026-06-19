@@ -423,17 +423,20 @@ function renderBoard(details) {
       return `<button class="repo-filter-btn" data-repo="${esc(repo.name)}" onclick="setBoardFilter('${esc(repo.name)}')" style="--pill-color:${fg}">${esc(repo.name)}</button>`;
     }).join('');
 
-  // Person filter pills — collect unique assignees + PR authors
+  // Person filter pills — collect creators, assignees, PR authors, committers
   const personSet = new Set();
-  details.forEach(({ pulls, issues: iss }) => {
+  details.forEach(({ pulls, issues: iss, lastCommit }) => {
     iss.forEach(issue => {
-      (issue.assignees || []).forEach(a => { if (a.login) personSet.add(a.login); });
+      if (issue.user?.login)    personSet.add(issue.user.login);
       if (issue.assignee?.login) personSet.add(issue.assignee.login);
+      (issue.assignees || []).forEach(a => { if (a.login) personSet.add(a.login); });
     });
     pulls.forEach(pr => {
       if (pr.user?.login) personSet.add(pr.user.login);
       (pr.assignees || []).forEach(a => { if (a.login) personSet.add(a.login); });
     });
+    const committer = lastCommit?.author?.login || lastCommit?.commit?.author?.name;
+    if (committer) personSet.add(committer);
   });
   const personEl = document.getElementById('board-person-filter');
   personEl.innerHTML = `<button class="repo-filter-btn active" data-person="all" onclick="setPersonFilter('all')">All people</button>` +
@@ -464,7 +467,8 @@ function filterBoard() {
 function matchesPerson(item, type) {
   if (boardPersonFilter === 'all') return true;
   if (type === 'issue') {
-    return item.assignee?.login === boardPersonFilter ||
+    return item.user?.login === boardPersonFilter ||
+           item.assignee?.login === boardPersonFilter ||
            (item.assignees || []).some(a => a.login === boardPersonFilter);
   }
   if (type === 'pr') {
