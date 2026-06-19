@@ -11,7 +11,6 @@
 </head>
 <body>
 
-<!-- Top navigation bar -->
 <header class="topbar">
   <div class="topbar-brand">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
@@ -21,21 +20,40 @@
     <span class="brand-dot"></span>
   </div>
 
-  <div class="topbar-controls">
-    <input id="pat-input" type="password" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
-    <input id="org-input" type="text" placeholder="org-name" />
-    <button class="btn" id="load-btn" onclick="loadDashboard()">
+  <div class="topbar-right">
+    <span id="last-updated" class="last-updated" style="display:none"></span>
+    <button class="btn" id="load-btn" onclick="loadDashboard()" style="display:none">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>
-      Load
+      Refresh
+    </button>
+    <button class="btn-icon" id="settings-btn" onclick="toggleSettings()" title="Settings" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
+
+  <!-- Settings panel (shown before first load, or when gear is clicked) -->
+  <div id="settings-panel" class="settings-panel">
+    <input id="pat-input" type="password" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+    <input id="org-input" type="text" placeholder="org or username" />
+    <button class="btn" id="connect-btn" onclick="loadDashboard()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>
+      Connect
     </button>
   </div>
 </header>
 
-<!-- Main content -->
 <main class="main">
   <div id="summary-grid" class="summary-grid" style="display:none;"></div>
-  <div id="status-msg"></div>
 
+  <div id="filter-bar" class="filter-bar" style="display:none;">
+    <button class="filter-btn active" data-filter="all"    onclick="setFilter('all')">All</button>
+    <button class="filter-btn"        data-filter="active" onclick="setFilter('active')">Active</button>
+    <button class="filter-btn"        data-filter="idle"   onclick="setFilter('idle')">Idle</button>
+    <button class="filter-btn"        data-filter="stale"  onclick="setFilter('stale')">Stale</button>
+    <span id="filter-count" class="filter-count"></span>
+  </div>
+
+  <div id="status-msg"></div>
   <div id="repo-list" class="repo-list"></div>
 
   <div id="empty-state" class="empty-state">
@@ -56,6 +74,15 @@ const AVATAR_COLORS = [
   ['#1a3a2a','#56d364']
 ];
 
+let allDetails      = [];
+let activeFilter    = 'all';
+let lastRefreshed   = null;
+let autoRefreshTimer = null;
+let lastUpdatedTimer = null;
+let settingsOpen    = false;
+
+// ── Helpers ────────────────────────────────────────────────
+
 function initials(name) {
   if (!name) return '?';
   return name.split(/[\s\-_]/).filter(Boolean).map(p => p[0]).join('').toUpperCase().slice(0, 2);
@@ -70,20 +97,33 @@ function timeAgo(d) {
   return Math.floor(s / 604800) + 'w ago';
 }
 
-function statusBadge(pushedAt) {
+function repoStatus(pushedAt) {
   const days = (Date.now() - new Date(pushedAt)) / 86400000;
-  if (days < 2)  return `<span class="badge badge-active"><span class="badge-dot"></span>Active</span>`;
-  if (days < 7)  return `<span class="badge badge-idle"><span class="badge-dot"></span>Idle</span>`;
-  return             `<span class="badge badge-stale"><span class="badge-dot"></span>Stale</span>`;
+  if (days < 2) return 'active';
+  if (days < 7) return 'idle';
+  return 'stale';
+}
+
+function statusBadge(pushedAt) {
+  const s = repoStatus(pushedAt);
+  const labels = { active: 'Active', idle: 'Idle', stale: 'Stale' };
+  return `<span class="badge badge-${s}"><span class="badge-dot"></span>${labels[s]}</span>`;
 }
 
 function svg(path, w = 12) {
   return `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
 }
 
-const SVG_PR    = svg('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>');
-const SVG_ISSUE = svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>');
-const SVG_COMMIT= svg('<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>');
+const SVG_PR     = svg('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>');
+const SVG_ISSUE  = svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>');
+const SVG_COMMIT = svg('<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>');
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── GitHub API ─────────────────────────────────────────────
 
 async function ghFetch(url, token) {
   const r = await fetch(url, {
@@ -92,6 +132,26 @@ async function ghFetch(url, token) {
   if (!r.ok) throw new Error(`GitHub ${r.status}: ${url.split('/').slice(-2).join('/')}`);
   return r.json();
 }
+
+async function fetchAllRepos(org, token) {
+  let page = 1;
+  let all  = [];
+  const base = `https://api.github.com`;
+  while (true) {
+    let batch;
+    try {
+      batch = await ghFetch(`${base}/orgs/${org}/repos?per_page=100&sort=pushed&page=${page}`, token);
+    } catch {
+      batch = await ghFetch(`${base}/users/${org}/repos?per_page=100&sort=pushed&page=${page}`, token);
+    }
+    all = all.concat(batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return all;
+}
+
+// ── Storage ────────────────────────────────────────────────
 
 function saveToStorage() {
   const token = document.getElementById('pat-input').value.trim();
@@ -108,48 +168,94 @@ function loadFromStorage() {
   if (token && org) loadDashboard();
 }
 
+// ── Settings panel toggle ──────────────────────────────────
+
+function toggleSettings() {
+  settingsOpen = !settingsOpen;
+  const panel = document.getElementById('settings-panel');
+  const btn   = document.getElementById('settings-btn');
+  panel.classList.toggle('open', settingsOpen);
+  btn.classList.toggle('active', settingsOpen);
+}
+
+function collapseSettings() {
+  settingsOpen = false;
+  const panel = document.getElementById('settings-panel');
+  panel.classList.remove('open');
+  panel.classList.add('dropdown');
+  document.getElementById('settings-btn').classList.remove('active');
+  document.getElementById('settings-btn').style.display = 'flex';
+  document.getElementById('load-btn').style.display     = 'flex';
+}
+
+// ── Auto-refresh & last-updated ────────────────────────────
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(loadDashboard, 5 * 60 * 1000);
+}
+
+function tickLastUpdated() {
+  if (lastUpdatedTimer) clearInterval(lastUpdatedTimer);
+  lastUpdatedTimer = setInterval(() => {
+    if (!lastRefreshed) return;
+    const el = document.getElementById('last-updated');
+    el.textContent = 'Updated ' + timeAgo(lastRefreshed);
+  }, 30000);
+}
+
+// ── Load dashboard ─────────────────────────────────────────
+
 async function loadDashboard() {
   const token = document.getElementById('pat-input').value.trim();
   const org   = document.getElementById('org-input').value.trim();
   if (!token || !org) { setStatus('↳ enter token and org to continue'); return; }
   saveToStorage();
 
-  const btn = document.getElementById('load-btn');
-  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg> Loading`;
-  btn.disabled = true;
+  const btn     = document.getElementById('load-btn');
+  const connBtn = document.getElementById('connect-btn');
+  const spinSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>`;
 
-  document.getElementById('empty-state').style.display = 'none';
-  document.getElementById('repo-list').innerHTML = '';
+  btn.innerHTML     = spinSvg + ' Refreshing';
+  connBtn.innerHTML = spinSvg + ' Loading';
+  btn.disabled = connBtn.disabled = true;
+
+  document.getElementById('empty-state').style.display  = 'none';
+  document.getElementById('repo-list').innerHTML         = '';
   document.getElementById('summary-grid').style.display = 'none';
+  document.getElementById('filter-bar').style.display   = 'none';
   setStatus('↳ fetching repositories…');
 
   try {
-    let repos;
-    try {
-      repos = await ghFetch(`https://api.github.com/orgs/${org}/repos?per_page=30&sort=pushed`, token);
-    } catch {
-      repos = await ghFetch(`https://api.github.com/users/${org}/repos?per_page=30&sort=pushed`, token);
-    }
+    const repos = await fetchAllRepos(org, token);
     if (!repos.length) { setStatus('↳ no repositories found.'); resetBtn(); return; }
 
     setStatus(`↳ found ${repos.length} repos — loading details…`);
 
-    const details = await Promise.all(repos.map(async (repo, i) => {
+    allDetails = await Promise.all(repos.map(async (repo, i) => {
       try {
         const [commits, pulls, issues] = await Promise.all([
           ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=1`, token).catch(() => []),
           ghFetch(`https://api.github.com/repos/${org}/${repo.name}/pulls?state=open&per_page=5`, token).catch(() => []),
           ghFetch(`https://api.github.com/repos/${org}/${repo.name}/issues?state=open&per_page=5`, token).catch(() => [])
         ]);
-        return { repo, lastCommit: commits[0] || null, pulls, issues: issues.filter(i => !i.pull_request), colorIdx: i % 7 };
+        return { repo, lastCommit: commits[0] || null, pulls, issues: issues.filter(x => !x.pull_request), colorIdx: i % 7 };
       } catch {
         return { repo, lastCommit: null, pulls: [], issues: [], colorIdx: i % 7 };
       }
     }));
 
-    renderSummary(details, org);
-    renderCards(details, org);
+    lastRefreshed = new Date();
+    const lu = document.getElementById('last-updated');
+    lu.style.display = 'inline';
+    lu.textContent   = 'Updated just now';
+
+    renderSummary(allDetails);
+    applyFilter(activeFilter);
     setStatus('');
+    collapseSettings();
+    startAutoRefresh();
+    tickLastUpdated();
   } catch (e) {
     setStatus('↳ error: ' + e.message);
   }
@@ -158,45 +264,79 @@ async function loadDashboard() {
 }
 
 function resetBtn() {
-  const btn = document.getElementById('load-btn');
-  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg> Refresh`;
-  btn.disabled = false;
+  const btn     = document.getElementById('load-btn');
+  const connBtn = document.getElementById('connect-btn');
+  const refreshSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>`;
+  btn.innerHTML     = refreshSvg + ' Refresh';
+  connBtn.innerHTML = refreshSvg + ' Connect';
+  btn.disabled = connBtn.disabled = false;
 }
 
 function setStatus(msg) {
   document.getElementById('status-msg').textContent = msg;
 }
 
-function renderSummary(details, org) {
+// ── Filter ─────────────────────────────────────────────────
+
+function setFilter(f) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
+  applyFilter(f);
+}
+
+function applyFilter(f) {
+  const filtered = f === 'all' ? allDetails : allDetails.filter(d => repoStatus(d.repo.pushed_at) === f);
+  const countEl  = document.getElementById('filter-count');
+  countEl.textContent = f === 'all' ? `${filtered.length} repos` : `${filtered.length} of ${allDetails.length}`;
+  renderCards(filtered);
+}
+
+// ── Render summary ─────────────────────────────────────────
+
+function renderSummary(details) {
   const totalPRs    = details.reduce((s, d) => s + d.pulls.length, 0);
   const totalIssues = details.reduce((s, d) => s + d.issues.length, 0);
-  const active      = details.filter(d => d.repo.pushed_at && (Date.now() - new Date(d.repo.pushed_at)) / 86400000 < 2).length;
+  const active      = details.filter(d => repoStatus(d.repo.pushed_at) === 'active').length;
+  const stale       = details.filter(d => repoStatus(d.repo.pushed_at) === 'stale').length;
 
   const el = document.getElementById('summary-grid');
   el.style.display = 'grid';
   el.innerHTML = `
-    <div class="metric-card">
+    <div class="metric-card" onclick="setFilter('all')" style="cursor:pointer">
       <span class="metric-label">Repositories</span>
       <span class="metric-value" style="color:var(--text)">${details.length}</span>
     </div>
-    <div class="metric-card">
+    <div class="metric-card" onclick="setFilter('active')" style="cursor:pointer">
       <span class="metric-label">Active today</span>
       <span class="metric-value green">${active}</span>
     </div>
-    <div class="metric-card">
+    <div class="metric-card" onclick="setFilter('stale')" style="cursor:pointer">
+      <span class="metric-label">Stale repos</span>
+      <span class="metric-value ${stale > 0 ? 'red' : 'green'}">${stale}</span>
+    </div>
+    <div class="metric-card" onclick="setFilter('all')" style="cursor:pointer">
       <span class="metric-label">Open PRs</span>
       <span class="metric-value blue">${totalPRs}</span>
     </div>
-    <div class="metric-card">
+    <div class="metric-card" onclick="setFilter('all')" style="cursor:pointer">
       <span class="metric-label">Open Issues</span>
       <span class="metric-value orange">${totalIssues}</span>
     </div>
   `;
+
+  document.getElementById('filter-bar').style.display = 'flex';
 }
 
-function renderCards(details, org) {
+// ── Render cards ───────────────────────────────────────────
+
+function renderCards(details) {
   const list = document.getElementById('repo-list');
   list.innerHTML = '';
+
+  if (!details.length) {
+    list.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-3);font-family:var(--font-mono);font-size:13px">No ${activeFilter} repositories found.</div>`;
+    return;
+  }
 
   details.forEach(({ repo, lastCommit, pulls, issues, colorIdx }) => {
     const [avatarBg, avatarFg] = AVATAR_COLORS[colorIdx];
@@ -205,12 +345,12 @@ function renderCards(details, org) {
     const commitTime = lastCommit?.commit?.author?.date ? timeAgo(lastCommit.commit.author.date) : '—';
     const ini        = initials(committer);
 
-    const prRows    = pulls.length
-      ? pulls.slice(0, 3).map(p => `<div class="item-line">${SVG_PR}<span style="overflow:hidden;text-overflow:ellipsis">${esc(p.title)}</span></div>`).join('')
+    const prRows = pulls.length
+      ? pulls.slice(0, 3).map(p => `<div class="item-line">${SVG_PR}<span>${esc(p.title)}</span></div>`).join('')
       : `<span class="empty-line">No open PRs</span>`;
 
     const issueRows = issues.length
-      ? issues.slice(0, 3).map(i => `<div class="item-line">${SVG_ISSUE}<span style="overflow:hidden;text-overflow:ellipsis">${esc(i.title)}</span></div>`).join('')
+      ? issues.slice(0, 3).map(i => `<div class="item-line">${SVG_ISSUE}<span>${esc(i.title)}</span></div>`).join('')
       : `<span class="empty-line">No open issues</span>`;
 
     const card = document.createElement('div');
@@ -219,12 +359,12 @@ function renderCards(details, org) {
       <div class="repo-header">
         <div>
           <div class="repo-name-row">
-            <svg class="repo-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" fill="currentColor"/>
+            <svg class="repo-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
             </svg>
             <a class="repo-name" href="${repo.html_url}" target="_blank" rel="noopener">${esc(repo.name)}</a>
           </div>
-          ${repo.description ? `<div class="repo-desc">${esc(repo.description)}</div>` : ''}
+          ${repo.description ? `<div class="repo-desc" title="${esc(repo.description)}">${esc(repo.description)}</div>` : ''}
         </div>
         <div class="repo-meta">
           ${statusBadge(repo.pushed_at)}
@@ -256,11 +396,6 @@ function renderCards(details, org) {
     `;
     list.appendChild(card);
   });
-}
-
-function esc(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 
