@@ -1,131 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Team Dashboard — GitHub Org</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-<h2 class="sr-only">GitHub Team Dashboard — track all repositories, last commits, open PRs and issues across your organization</h2>
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface-2: #21262d;
+      --border:    #30363d;
+      --border-2:  #3d444d;
+      --text:      #e6edf3;
+      --text-2:    #9198a1;
+      --text-3:    #656d76;
+      --green:     #3fb950;
+      --green-bg:  #1a2f1a;
+      --orange:    #d29922;
+      --orange-bg: #2d2000;
+      --red:       #f85149;
+      --red-bg:    #2d1a1a;
+      --blue:      #58a6ff;
+      --blue-bg:   #0f2847;
+      --purple:    #bc8cff;
+      --accent:    #238636;
+      --font-ui:   'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --radius:    6px;
+      --radius-lg: 10px;
+    }
 
-<div style="padding: 1rem 0;">
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
 
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: gap;">
-  <div>
-    <p style="font-size: 22px; font-weight: 500; color: var(--color-text-primary); margin: 0;">Team Dashboard</p>
-    <p style="font-size: 13px; color: var(--color-text-secondary); margin: 4px 0 0;">Live status across all repositories</p>
+    /* ── Top nav ─────────────────────────────────────── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      gap: 16px;
+    }
+
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .topbar-brand svg {
+      color: var(--text);
+    }
+
+    .brand-name {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .brand-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      flex-shrink: 0;
+    }
+
+    .topbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    input[type="password"], input[type="text"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      padding: 6px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="password"] { width: 220px; font-family: var(--font-mono); letter-spacing: 0.05em; }
+    input[type="text"]     { width: 130px; }
+
+    input::placeholder { color: var(--text-3); }
+    input:focus { border-color: var(--blue); }
+
+    .btn {
+      background: var(--accent);
+      border: 1px solid rgba(240,246,252,0.1);
+      border-radius: var(--radius);
+      color: #fff;
+      cursor: pointer;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 16px;
+      white-space: nowrap;
+      transition: background 0.15s, opacity 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover  { background: #2ea043; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Main content ─────────────────────────────────── */
+    .main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 24px 60px;
+    }
+
+    /* ── Summary cards ────────────────────────────────── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-3);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .metric-value {
+      font-size: 28px;
+      font-weight: 600;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-value.green  { color: var(--green); }
+    .metric-value.blue   { color: var(--blue); }
+    .metric-value.orange { color: var(--orange); }
+
+    /* ── Repo cards ───────────────────────────────────── */
+    .repo-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .repo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .repo-card:hover {
+      border-color: var(--border-2);
+      background: #1c2128;
+    }
+
+    .repo-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .repo-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .repo-icon {
+      color: var(--text-3);
+      flex-shrink: 0;
+    }
+
+    .repo-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    .repo-name:hover { text-decoration: underline; }
+
+    .repo-desc {
+      font-size: 12px;
+      color: var(--text-2);
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 380px;
+    }
+
+    .repo-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .time-label {
+      font-size: 12px;
+      color: var(--text-3);
+      font-family: var(--font-mono);
+    }
+
+    /* ── Badges ───────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 9px;
+      border-radius: 20px;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .badge-active  { background: var(--green-bg);  color: var(--green);  border: 1px solid rgba(63,185,80,0.3); }
+    .badge-active  .badge-dot { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+    .badge-idle    { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(210,153,34,0.3); }
+    .badge-idle    .badge-dot { background: var(--orange); }
+    .badge-stale   { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(248,81,73,0.3); }
+    .badge-stale   .badge-dot { background: var(--red); }
+
+    /* ── 3-column details row ─────────────────────────── */
+    .repo-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+    }
+
+    .detail-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+    }
+
+    .detail-title {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .detail-title svg { flex-shrink: 0; }
+
+    /* Avatar */
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .commit-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+
+    .commit-author {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .commit-time {
+      font-size: 11px;
+      color: var(--text-3);
+      font-family: var(--font-mono);
+    }
+
+    .commit-msg {
+      font-size: 12px;
+      color: var(--text-2);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-line {
+      font-size: 11px;
+      color: var(--text-2);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-line svg { flex-shrink: 0; color: var(--text-3); }
+
+    .empty-line {
+      font-size: 12px;
+      color: var(--text-3);
+    }
+
+    /* ── Status / empty state ─────────────────────────── */
+    #status-msg {
+      font-size: 13px;
+      color: var(--text-2);
+      margin-bottom: 16px;
+      font-family: var(--font-mono);
+      min-height: 20px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 24px;
+      color: var(--text-3);
+    }
+
+    .empty-state svg {
+      opacity: 0.3;
+      margin-bottom: 16px;
+    }
+
+    .empty-state p { font-size: 14px; margin-bottom: 6px; color: var(--text-2); }
+    .empty-state small { font-size: 12px; font-family: var(--font-mono); color: var(--text-3); }
+
+    /* ── Scrollbar ────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- Top navigation bar -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+    </svg>
+    <span class="brand-name">Team Dashboard</span>
+    <span class="brand-dot"></span>
   </div>
-  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-    <input id="pat-input" type="password" placeholder="GitHub Personal Access Token" style="font-size: 13px; padding: 6px 10px; width: 240px;" />
-    <input id="org-input" type="text" placeholder="org-name" style="font-size: 13px; padding: 6px 10px; width: 120px;" />
-    <button id="load-btn" onclick="loadDashboard()" style="font-size: 13px; padding: 6px 14px;">Load ↗</button>
+
+  <div class="topbar-controls">
+    <input id="pat-input" type="password" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+    <input id="org-input" type="text" placeholder="org-name" />
+    <button class="btn" id="load-btn" onclick="loadDashboard()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>
+      Load
+    </button>
   </div>
-</div>
+</header>
 
-<div id="summary-cards" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 1.5rem;"></div>
+<!-- Main content -->
+<main class="main">
+  <div id="summary-grid" class="summary-grid" style="display:none;"></div>
+  <div id="status-msg"></div>
 
-<div id="status-msg" style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: 1rem;"></div>
+  <div id="repo-list" class="repo-list"></div>
 
-<div id="repo-grid" style="display: flex; flex-direction: column; gap: 10px;"></div>
-
-<div id="empty-state" style="text-align: center; padding: 3rem 1rem;">
-  <i class="ti ti-layout-dashboard" style="font-size: 48px; color: var(--color-text-secondary);" aria-hidden="true"></i>
-  <p style="font-size: 15px; color: var(--color-text-secondary); margin: 12px 0 4px;">Enter your GitHub token and org name to load your dashboard</p>
-  <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0;">Token needs <code>repo</code> and <code>read:org</code> permissions</p>
-</div>
-
-</div>
-
-<style>
-.repo-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; transition: border-color 0.15s; }
-.repo-card:hover { border-color: var(--color-border-secondary); }
-.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 8px; border-radius: var(--border-radius-md); font-weight: 500; }
-.badge-active { background: #EAF3DE; color: #3B6D11; }
-.badge-idle { background: #FAEEDA; color: #854F0B; }
-.badge-stale { background: #FCEBEB; color: #A32D2D; }
-.metric-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 1rem; }
-.avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--color-background-info); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; color: #185FA5; flex-shrink: 0; }
-</style>
+  <div id="empty-state" class="empty-state">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+    </svg>
+    <p>Enter your token and org to load the dashboard</p>
+    <small>Token needs <code style="color:var(--purple)">repo</code> + <code style="color:var(--purple)">read:org</code> scopes</small>
+  </div>
+</main>
 
 <script>
 document.addEventListener('DOMContentLoaded', loadFromStorage);
 
-const COLORS = ['#B5D4F4','#9FE1CB','#FAC775','#F4C0D1','#CECBF6','#C0DD97','#F5C4B3'];
-const COLOR_TEXT = ['#0C447C','#085041','#633806','#72243E','#3C3489','#27500A','#712B13'];
+const AVATAR_COLORS = [
+  ['#1f4b8e','#58a6ff'], ['#0f3d2c','#3fb950'], ['#4a1d0f','#d29922'],
+  ['#3b1a45','#bc8cff'], ['#1d3a4a','#56d3f5'], ['#4a2020','#f85149'],
+  ['#1a3a2a','#56d364']
+];
 
 function initials(name) {
   if (!name) return '?';
-  return name.split(/[\s-_]/).map(p => p[0]).join('').toUpperCase().slice(0,2);
+  return name.split(/[\s\-_]/).filter(Boolean).map(p => p[0]).join('').toUpperCase().slice(0, 2);
 }
 
-function timeAgo(dateStr) {
-  const diff = (Date.now() - new Date(dateStr)) / 1000;
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  if (diff < 604800) return Math.floor(diff/86400) + 'd ago';
-  return Math.floor(diff/604800) + 'w ago';
+function timeAgo(d) {
+  const s = (Date.now() - new Date(d)) / 1000;
+  if (s < 60)     return 'just now';
+  if (s < 3600)   return Math.floor(s / 60) + 'm ago';
+  if (s < 86400)  return Math.floor(s / 3600) + 'h ago';
+  if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+  return Math.floor(s / 604800) + 'w ago';
 }
 
 function statusBadge(pushedAt) {
   const days = (Date.now() - new Date(pushedAt)) / 86400000;
-  if (days < 2) return '<span class="badge badge-active"><i class="ti ti-circle-filled" style="font-size:8px"></i> Active</span>';
-  if (days < 7) return '<span class="badge badge-idle"><i class="ti ti-circle-filled" style="font-size:8px"></i> Idle</span>';
-  return '<span class="badge badge-stale"><i class="ti ti-circle-filled" style="font-size:8px"></i> Stale</span>';
+  if (days < 2)  return `<span class="badge badge-active"><span class="badge-dot"></span>Active</span>`;
+  if (days < 7)  return `<span class="badge badge-idle"><span class="badge-dot"></span>Idle</span>`;
+  return             `<span class="badge badge-stale"><span class="badge-dot"></span>Stale</span>`;
 }
 
+function svg(path, w = 12) {
+  return `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+}
+
+const SVG_PR    = svg('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>');
+const SVG_ISSUE = svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>');
+const SVG_COMMIT= svg('<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>');
+
 async function ghFetch(url, token) {
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } });
-  if (!r.ok) throw new Error(`GitHub API error: ${r.status}`);
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+  });
+  if (!r.ok) throw new Error(`GitHub ${r.status}: ${url.split('/').slice(-2).join('/')}`);
   return r.json();
 }
 
 function saveToStorage() {
   const token = document.getElementById('pat-input').value.trim();
-  const org = document.getElementById('org-input').value.trim();
+  const org   = document.getElementById('org-input').value.trim();
   if (token) localStorage.setItem('gh_pat', token);
-  if (org) localStorage.setItem('gh_org', org);
+  if (org)   localStorage.setItem('gh_org', org);
 }
 
 function loadFromStorage() {
   const token = localStorage.getItem('gh_pat');
-  const org = localStorage.getItem('gh_org');
+  const org   = localStorage.getItem('gh_org');
   if (token) document.getElementById('pat-input').value = token;
-  if (org) document.getElementById('org-input').value = org;
+  if (org)   document.getElementById('org-input').value = org;
   if (token && org) loadDashboard();
 }
 
 async function loadDashboard() {
   const token = document.getElementById('pat-input').value.trim();
-  const org = document.getElementById('org-input').value.trim();
-  if (!token || !org) { setStatus('Please enter both token and org name.'); return; }
+  const org   = document.getElementById('org-input').value.trim();
+  if (!token || !org) { setStatus('↳ enter token and org to continue'); return; }
   saveToStorage();
 
   const btn = document.getElementById('load-btn');
-  btn.textContent = 'Loading…';
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg> Loading`;
   btn.disabled = true;
+
   document.getElementById('empty-state').style.display = 'none';
-  document.getElementById('repo-grid').innerHTML = '';
-  document.getElementById('summary-cards').style.display = 'none';
-  setStatus('Fetching repositories…');
+  document.getElementById('repo-list').innerHTML = '';
+  document.getElementById('summary-grid').style.display = 'none';
+  setStatus('↳ fetching repositories…');
 
   try {
     const repos = await ghFetch(`https://api.github.com/orgs/${org}/repos?per_page=30&sort=pushed`, token);
-    if (!repos.length) { setStatus('No repositories found in this org.'); btn.textContent='Load ↗'; btn.disabled=false; return; }
+    if (!repos.length) { setStatus('↳ no repositories found.'); resetBtn(); return; }
 
-    setStatus(`Found ${repos.length} repositories. Loading details…`);
+    setStatus(`↳ found ${repos.length} repos — loading details…`);
 
     const details = await Promise.all(repos.map(async (repo, i) => {
       try {
         const [commits, pulls, issues] = await Promise.all([
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=1`, token).catch(()=>[]),
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/pulls?state=open&per_page=5`, token).catch(()=>[]),
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/issues?state=open&per_page=5`, token).catch(()=>[])
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=1`, token).catch(() => []),
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/pulls?state=open&per_page=5`, token).catch(() => []),
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/issues?state=open&per_page=5`, token).catch(() => [])
         ]);
-        const lastCommit = commits[0] || null;
-        return { repo, lastCommit, pulls, issues: issues.filter(i => !i.pull_request), colorIdx: i % 7 };
-      } catch(e) { return { repo, lastCommit: null, pulls: [], issues: [], colorIdx: i % 7 }; }
+        return { repo, lastCommit: commits[0] || null, pulls, issues: issues.filter(i => !i.pull_request), colorIdx: i % 7 };
+      } catch {
+        return { repo, lastCommit: null, pulls: [], issues: [], colorIdx: i % 7 };
+      }
     }));
 
-    renderSummary(details);
-    renderCards(details);
+    renderSummary(details, org);
+    renderCards(details, org);
     setStatus('');
-  } catch(e) {
-    setStatus('Error: ' + e.message + '. Check your token and org name.');
+  } catch (e) {
+    setStatus('↳ error: ' + e.message);
   }
-  btn.textContent = 'Refresh ↗';
+
+  resetBtn();
+}
+
+function resetBtn() {
+  const btn = document.getElementById('load-btn');
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg> Refresh`;
   btn.disabled = false;
 }
 
@@ -133,87 +542,106 @@ function setStatus(msg) {
   document.getElementById('status-msg').textContent = msg;
 }
 
-function renderSummary(details) {
-  const totalPRs = details.reduce((s,d) => s + d.pulls.length, 0);
-  const totalIssues = details.reduce((s,d) => s + d.issues.length, 0);
-  const active = details.filter(d => d.repo.pushed_at && (Date.now()-new Date(d.repo.pushed_at))/86400000 < 2).length;
-  const el = document.getElementById('summary-cards');
+function renderSummary(details, org) {
+  const totalPRs    = details.reduce((s, d) => s + d.pulls.length, 0);
+  const totalIssues = details.reduce((s, d) => s + d.issues.length, 0);
+  const active      = details.filter(d => d.repo.pushed_at && (Date.now() - new Date(d.repo.pushed_at)) / 86400000 < 2).length;
+
+  const el = document.getElementById('summary-grid');
   el.style.display = 'grid';
   el.innerHTML = `
-    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Repositories</p><p style="font-size:24px;font-weight:500;margin:0;color:var(--color-text-primary)">${details.length}</p></div>
-    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Active today</p><p style="font-size:24px;font-weight:500;margin:0;color:#3B6D11">${active}</p></div>
-    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Open PRs</p><p style="font-size:24px;font-weight:500;margin:0;color:#185FA5">${totalPRs}</p></div>
-    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Open Issues</p><p style="font-size:24px;font-weight:500;margin:0;color:#854F0B">${totalIssues}</p></div>
+    <div class="metric-card">
+      <span class="metric-label">Repositories</span>
+      <span class="metric-value" style="color:var(--text)">${details.length}</span>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">Active today</span>
+      <span class="metric-value green">${active}</span>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">Open PRs</span>
+      <span class="metric-value blue">${totalPRs}</span>
+    </div>
+    <div class="metric-card">
+      <span class="metric-label">Open Issues</span>
+      <span class="metric-value orange">${totalIssues}</span>
+    </div>
   `;
 }
 
-function renderCards(details) {
-  const grid = document.getElementById('repo-grid');
-  grid.innerHTML = '';
+function renderCards(details, org) {
+  const list = document.getElementById('repo-list');
+  list.innerHTML = '';
+
   details.forEach(({ repo, lastCommit, pulls, issues, colorIdx }) => {
-    const committer = lastCommit?.commit?.author?.name || lastCommit?.author?.login || '—';
-    const commitMsg = lastCommit?.commit?.message?.split('\n')[0] || 'No commits yet';
+    const [avatarBg, avatarFg] = AVATAR_COLORS[colorIdx];
+    const committer  = lastCommit?.commit?.author?.name || lastCommit?.author?.login || '—';
+    const commitMsg  = lastCommit?.commit?.message?.split('\n')[0] || 'No commits yet';
     const commitTime = lastCommit?.commit?.author?.date ? timeAgo(lastCommit.commit.author.date) : '—';
-    const avatarBg = COLORS[colorIdx] || '#B5D4F4';
-    const avatarColor = COLOR_TEXT[colorIdx] || '#0C447C';
-    const ini = initials(committer);
+    const ini        = initials(committer);
 
-    const prList = pulls.slice(0,3).map(p =>
-      `<span style="font-size:11px;color:var(--color-text-secondary);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">
-        <i class="ti ti-git-pull-request" style="font-size:11px;vertical-align:-1px" aria-hidden="true"></i> ${p.title}
-      </span>`
-    ).join('');
+    const prRows    = pulls.length
+      ? pulls.slice(0, 3).map(p => `<div class="item-line">${SVG_PR}<span style="overflow:hidden;text-overflow:ellipsis">${esc(p.title)}</span></div>`).join('')
+      : `<span class="empty-line">No open PRs</span>`;
 
-    const issueList = issues.slice(0,3).map(iss =>
-      `<span style="font-size:11px;color:var(--color-text-secondary);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">
-        <i class="ti ti-circle-dot" style="font-size:11px;vertical-align:-1px" aria-hidden="true"></i> ${iss.title}
-      </span>`
-    ).join('');
+    const issueRows = issues.length
+      ? issues.slice(0, 3).map(i => `<div class="item-line">${SVG_ISSUE}<span style="overflow:hidden;text-overflow:ellipsis">${esc(i.title)}</span></div>`).join('')
+      : `<span class="empty-line">No open issues</span>`;
 
     const card = document.createElement('div');
     card.className = 'repo-card';
     card.innerHTML = `
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-          <i class="ti ti-brand-github" style="font-size:20px;color:var(--color-text-secondary);flex-shrink:0" aria-hidden="true"></i>
-          <div style="min-width:0;">
-            <a href="${repo.html_url}" style="font-size:15px;font-weight:500;color:var(--color-text-primary);text-decoration:none;">${repo.name}</a>
-            ${repo.description ? `<p style="font-size:12px;color:var(--color-text-secondary);margin:2px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px">${repo.description}</p>` : ''}
+      <div class="repo-header">
+        <div>
+          <div class="repo-name-row">
+            <svg class="repo-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" fill="currentColor"/>
+            </svg>
+            <a class="repo-name" href="${repo.html_url}" target="_blank" rel="noopener">${esc(repo.name)}</a>
           </div>
+          ${repo.description ? `<div class="repo-desc">${esc(repo.description)}</div>` : ''}
         </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <div class="repo-meta">
           ${statusBadge(repo.pushed_at)}
-          <span style="font-size:12px;color:var(--color-text-secondary)">${timeAgo(repo.pushed_at)}</span>
+          <span class="time-label">${timeAgo(repo.pushed_at)}</span>
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:14px;">
-        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;">
-          <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em">Last commit</p>
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-            <div class="avatar" style="background:${avatarBg};color:${avatarColor}">${ini}</div>
-            <span style="font-size:12px;font-weight:500;color:var(--color-text-primary)">${committer}</span>
-            <span style="font-size:11px;color:var(--color-text-secondary)">${commitTime}</span>
+      <div class="repo-details">
+        <div class="detail-box">
+          <div class="detail-title">${SVG_COMMIT} Last commit</div>
+          <div class="commit-row">
+            <span class="avatar" style="background:${avatarBg};color:${avatarFg}">${ini}</span>
+            <span class="commit-author">${esc(committer)}</span>
+            <span class="commit-time">${commitTime}</span>
           </div>
-          <p style="font-size:12px;color:var(--color-text-secondary);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${commitMsg}">${commitMsg}</p>
+          <div class="commit-msg" title="${esc(commitMsg)}">${esc(commitMsg)}</div>
         </div>
 
-        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;">
-          <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em">
-            <i class="ti ti-git-pull-request" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> Open PRs (${pulls.length})
-          </p>
-          ${pulls.length ? prList : '<span style="font-size:12px;color:var(--color-text-secondary)">No open PRs</span>'}
+        <div class="detail-box">
+          <div class="detail-title">${SVG_PR} Open PRs <span style="color:var(--blue);margin-left:2px">${pulls.length}</span></div>
+          ${prRows}
         </div>
 
-        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;">
-          <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em">
-            <i class="ti ti-circle-dot" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> Open Issues (${issues.length})
-          </p>
-          ${issues.length ? issueList : '<span style="font-size:12px;color:var(--color-text-secondary)">No open issues</span>'}
+        <div class="detail-box">
+          <div class="detail-title">${SVG_ISSUE} Issues <span style="color:var(--orange);margin-left:2px">${issues.length}</span></div>
+          ${issueRows}
         </div>
       </div>
     `;
-    grid.appendChild(card);
+    list.appendChild(card);
   });
 }
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 </script>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+</body>
+</html>
