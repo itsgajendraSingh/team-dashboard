@@ -31,7 +31,6 @@
     </button>
   </div>
 
-  <!-- Settings panel (shown before first load, or when gear is clicked) -->
   <div id="settings-panel" class="settings-panel">
     <input id="pat-input" type="password" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
     <input id="org-input" type="text" placeholder="org or username" />
@@ -43,14 +42,26 @@
 </header>
 
 <main class="main">
+  <!-- Team row: one card per repo owner -->
+  <div id="team-row" class="team-row" style="display:none;"></div>
+
+  <!-- Summary metric cards -->
   <div id="summary-grid" class="summary-grid" style="display:none;"></div>
 
+  <!-- Filter bar + legend -->
   <div id="filter-bar" class="filter-bar" style="display:none;">
     <button class="filter-btn active" data-filter="all"    onclick="setFilter('all')">All</button>
     <button class="filter-btn"        data-filter="active" onclick="setFilter('active')">Active</button>
     <button class="filter-btn"        data-filter="idle"   onclick="setFilter('idle')">Idle</button>
     <button class="filter-btn"        data-filter="stale"  onclick="setFilter('stale')">Stale</button>
     <span id="filter-count" class="filter-count"></span>
+    <span class="filter-legend">
+      <span class="legend-dot" style="background:var(--green)"></span>Active &lt; 2d
+      <span class="legend-sep">·</span>
+      <span class="legend-dot" style="background:var(--orange)"></span>Idle &lt; 7d
+      <span class="legend-sep">·</span>
+      <span class="legend-dot" style="background:var(--red)"></span>Stale ≥ 7d
+    </span>
   </div>
 
   <div id="status-msg"></div>
@@ -73,6 +84,15 @@ const AVATAR_COLORS = [
   ['#3b1a45','#bc8cff'], ['#1d3a4a','#56d3f5'], ['#4a2020','#f85149'],
   ['#1a3a2a','#56d364']
 ];
+
+// Language → colour mapping for badges
+const LANG_COLORS = {
+  JavaScript: '#f1e05a', TypeScript: '#3178c6', PHP: '#4f5d95',
+  Python: '#3572a5', Ruby: '#701516', Go: '#00add8',
+  Rust: '#dea584', CSS: '#563d7c', HTML: '#e34c26',
+  Shell: '#89e051', Java: '#b07219', 'C#': '#178600',
+  'C++': '#f34b7d', Swift: '#f05138', Kotlin: '#a97bff',
+};
 
 let allDetails      = [];
 let activeFilter    = 'all';
@@ -97,6 +117,12 @@ function timeAgo(d) {
   return Math.floor(s / 604800) + 'w ago';
 }
 
+function formatDate(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function repoStatus(pushedAt) {
   const days = (Date.now() - new Date(pushedAt)) / 86400000;
   if (days < 2) return 'active';
@@ -108,6 +134,12 @@ function statusBadge(pushedAt) {
   const s = repoStatus(pushedAt);
   const labels = { active: 'Active', idle: 'Idle', stale: 'Stale' };
   return `<span class="badge badge-${s}"><span class="badge-dot"></span>${labels[s]}</span>`;
+}
+
+function langBadge(language) {
+  if (!language) return '';
+  const color = LANG_COLORS[language] || '#8b949e';
+  return `<span class="lang-badge"><span class="lang-dot" style="background:${color}"></span>${esc(language)}</span>`;
 }
 
 function svg(path, w = 12) {
@@ -134,15 +166,13 @@ async function ghFetch(url, token) {
 }
 
 async function fetchAllRepos(org, token) {
-  let page = 1;
-  let all  = [];
-  const base = `https://api.github.com`;
+  let page = 1, all = [];
   while (true) {
     let batch;
     try {
-      batch = await ghFetch(`${base}/orgs/${org}/repos?per_page=100&sort=pushed&page=${page}`, token);
+      batch = await ghFetch(`https://api.github.com/orgs/${org}/repos?per_page=100&sort=pushed&page=${page}`, token);
     } catch {
-      batch = await ghFetch(`${base}/users/${org}/repos?per_page=100&sort=pushed&page=${page}`, token);
+      batch = await ghFetch(`https://api.github.com/users/${org}/repos?per_page=100&sort=pushed&page=${page}`, token);
     }
     all = all.concat(batch);
     if (batch.length < 100) break;
@@ -168,7 +198,7 @@ function loadFromStorage() {
   if (token && org) loadDashboard();
 }
 
-// ── Settings panel toggle ──────────────────────────────────
+// ── Settings panel ─────────────────────────────────────────
 
 function toggleSettings() {
   settingsOpen = !settingsOpen;
@@ -188,7 +218,7 @@ function collapseSettings() {
   document.getElementById('load-btn').style.display     = 'flex';
 }
 
-// ── Auto-refresh & last-updated ────────────────────────────
+// ── Auto-refresh ───────────────────────────────────────────
 
 function startAutoRefresh() {
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
@@ -199,12 +229,11 @@ function tickLastUpdated() {
   if (lastUpdatedTimer) clearInterval(lastUpdatedTimer);
   lastUpdatedTimer = setInterval(() => {
     if (!lastRefreshed) return;
-    const el = document.getElementById('last-updated');
-    el.textContent = 'Updated ' + timeAgo(lastRefreshed);
+    document.getElementById('last-updated').textContent = 'Updated ' + timeAgo(lastRefreshed);
   }, 30000);
 }
 
-// ── Load dashboard ─────────────────────────────────────────
+// ── Load ───────────────────────────────────────────────────
 
 async function loadDashboard() {
   const token = document.getElementById('pat-input').value.trim();
@@ -215,14 +244,14 @@ async function loadDashboard() {
   const btn     = document.getElementById('load-btn');
   const connBtn = document.getElementById('connect-btn');
   const spinSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>`;
-
-  btn.innerHTML     = spinSvg + ' Refreshing';
+  btn.innerHTML = spinSvg + ' Refreshing';
   connBtn.innerHTML = spinSvg + ' Loading';
   btn.disabled = connBtn.disabled = true;
 
   document.getElementById('empty-state').style.display  = 'none';
-  document.getElementById('repo-list').innerHTML         = '';
+  document.getElementById('repo-list').innerHTML        = '';
   document.getElementById('summary-grid').style.display = 'none';
+  document.getElementById('team-row').style.display     = 'none';
   document.getElementById('filter-bar').style.display   = 'none';
   setStatus('↳ fetching repositories…');
 
@@ -250,6 +279,7 @@ async function loadDashboard() {
     lu.style.display = 'inline';
     lu.textContent   = 'Updated just now';
 
+    renderTeamRow(allDetails);
     renderSummary(allDetails);
     applyFilter(activeFilter);
     setStatus('');
@@ -267,13 +297,35 @@ function resetBtn() {
   const btn     = document.getElementById('load-btn');
   const connBtn = document.getElementById('connect-btn');
   const refreshSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-6.58"/></svg>`;
-  btn.innerHTML     = refreshSvg + ' Refresh';
+  btn.innerHTML = refreshSvg + ' Refresh';
   connBtn.innerHTML = refreshSvg + ' Connect';
   btn.disabled = connBtn.disabled = false;
 }
 
 function setStatus(msg) {
   document.getElementById('status-msg').textContent = msg;
+}
+
+// ── Team row ───────────────────────────────────────────────
+
+function renderTeamRow(details) {
+  const el = document.getElementById('team-row');
+  el.style.display = 'flex';
+  el.innerHTML = details.map(({ repo, lastCommit, colorIdx }) => {
+    const [bg, fg]  = AVATAR_COLORS[colorIdx];
+    const name      = lastCommit?.commit?.author?.name || lastCommit?.author?.login || 'Unknown';
+    const status    = repoStatus(repo.pushed_at);
+    const statusColors = { active: 'var(--green)', idle: 'var(--orange)', stale: 'var(--red)' };
+    return `
+      <div class="team-card" onclick="setFilter('${status}'); document.getElementById('repo-list').querySelector('[data-repo="${esc(repo.name)}"]')?.scrollIntoView({behavior:'smooth',block:'center'})">
+        <div class="team-avatar-wrap">
+          <span class="team-avatar" style="background:${bg};color:${fg}">${initials(name)}</span>
+          <span class="team-status-dot" style="background:${statusColors[status]}"></span>
+        </div>
+        <span class="team-name">${esc(name.split(' ')[0])}</span>
+        <span class="team-repo">${esc(repo.name)}</span>
+      </div>`;
+  }).join('');
 }
 
 // ── Filter ─────────────────────────────────────────────────
@@ -286,12 +338,12 @@ function setFilter(f) {
 
 function applyFilter(f) {
   const filtered = f === 'all' ? allDetails : allDetails.filter(d => repoStatus(d.repo.pushed_at) === f);
-  const countEl  = document.getElementById('filter-count');
-  countEl.textContent = f === 'all' ? `${filtered.length} repos` : `${filtered.length} of ${allDetails.length}`;
+  document.getElementById('filter-count').textContent =
+    f === 'all' ? `${filtered.length} repos` : `${filtered.length} of ${allDetails.length}`;
   renderCards(filtered);
 }
 
-// ── Render summary ─────────────────────────────────────────
+// ── Summary ────────────────────────────────────────────────
 
 function renderSummary(details) {
   const totalPRs    = details.reduce((s, d) => s + d.pulls.length, 0);
@@ -327,7 +379,7 @@ function renderSummary(details) {
   document.getElementById('filter-bar').style.display = 'flex';
 }
 
-// ── Render cards ───────────────────────────────────────────
+// ── Repo cards ─────────────────────────────────────────────
 
 function renderCards(details) {
   const list = document.getElementById('repo-list');
@@ -340,10 +392,12 @@ function renderCards(details) {
 
   details.forEach(({ repo, lastCommit, pulls, issues, colorIdx }) => {
     const [avatarBg, avatarFg] = AVATAR_COLORS[colorIdx];
-    const committer  = lastCommit?.commit?.author?.name || lastCommit?.author?.login || '—';
-    const commitMsg  = lastCommit?.commit?.message?.split('\n')[0] || 'No commits yet';
-    const commitTime = lastCommit?.commit?.author?.date ? timeAgo(lastCommit.commit.author.date) : '—';
-    const ini        = initials(committer);
+    const committer   = lastCommit?.commit?.author?.name || lastCommit?.author?.login || '—';
+    const commitMsg   = lastCommit?.commit?.message?.split('\n')[0] || 'No commits yet';
+    const commitDate  = lastCommit?.commit?.author?.date;
+    const commitTime  = commitDate ? `${timeAgo(commitDate)} · ${formatDate(commitDate)}` : '—';
+    const pushedTime  = `${timeAgo(repo.pushed_at)} · ${formatDate(repo.pushed_at)}`;
+    const ini         = initials(committer);
 
     const prRows = pulls.length
       ? pulls.slice(0, 3).map(p => `<div class="item-line">${SVG_PR}<span>${esc(p.title)}</span></div>`).join('')
@@ -355,6 +409,7 @@ function renderCards(details) {
 
     const card = document.createElement('div');
     card.className = 'repo-card';
+    card.dataset.repo = repo.name;
     card.innerHTML = `
       <div class="repo-header">
         <div>
@@ -363,12 +418,13 @@ function renderCards(details) {
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
             </svg>
             <a class="repo-name" href="${repo.html_url}" target="_blank" rel="noopener">${esc(repo.name)}</a>
+            ${langBadge(repo.language)}
           </div>
           ${repo.description ? `<div class="repo-desc" title="${esc(repo.description)}">${esc(repo.description)}</div>` : ''}
         </div>
         <div class="repo-meta">
           ${statusBadge(repo.pushed_at)}
-          <span class="time-label">${timeAgo(repo.pushed_at)}</span>
+          <span class="time-label">${pushedTime}</span>
         </div>
       </div>
 
@@ -380,7 +436,7 @@ function renderCards(details) {
             <span class="commit-author">${esc(committer)}</span>
             <span class="commit-time">${commitTime}</span>
           </div>
-          <div class="commit-msg" title="${esc(commitMsg)}">${esc(commitMsg)}</div>
+          <div class="commit-msg">${esc(commitMsg)}</div>
         </div>
 
         <div class="detail-box">
