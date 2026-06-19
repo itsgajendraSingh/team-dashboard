@@ -41,7 +41,9 @@
 </style>
 
 <script>
-const COLORS = ['#B5D4F4','#9FE1CB','#FAC775','#F4C0D1','#CEC BF6','#C0DD97','#F5C4B3'];
+document.addEventListener('DOMContentLoaded', loadFromStorage);
+
+const COLORS = ['#B5D4F4','#9FE1CB','#FAC775','#F4C0D1','#CECBF6','#C0DD97','#F5C4B3'];
 const COLOR_TEXT = ['#0C447C','#085041','#633806','#72243E','#3C3489','#27500A','#712B13'];
 
 function initials(name) {
@@ -70,10 +72,26 @@ async function ghFetch(url, token) {
   return r.json();
 }
 
+function saveToStorage() {
+  const token = document.getElementById('pat-input').value.trim();
+  const org = document.getElementById('org-input').value.trim();
+  if (token) localStorage.setItem('gh_pat', token);
+  if (org) localStorage.setItem('gh_org', org);
+}
+
+function loadFromStorage() {
+  const token = localStorage.getItem('gh_pat');
+  const org = localStorage.getItem('gh_org');
+  if (token) document.getElementById('pat-input').value = token;
+  if (org) document.getElementById('org-input').value = org;
+  if (token && org) loadDashboard();
+}
+
 async function loadDashboard() {
   const token = document.getElementById('pat-input').value.trim();
   const org = document.getElementById('org-input').value.trim();
   if (!token || !org) { setStatus('Please enter both token and org name.'); return; }
+  saveToStorage();
 
   const btn = document.getElementById('load-btn');
   btn.textContent = 'Loading…';
