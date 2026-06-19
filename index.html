@@ -68,6 +68,7 @@
   <div id="tab-overview" class="tab-content">
     <div id="team-row" class="team-row"></div>
     <div id="summary-grid" class="summary-grid"></div>
+    <div id="overview-charts" class="overview-charts"></div>
   </div>
 
   <!-- ── Board tab ─────────────────────────────────────── -->
@@ -371,6 +372,150 @@ function setStatus(msg) {
   document.getElementById('status-msg').textContent = msg;
 }
 
+// ── SVG Donut chart ────────────────────────────────────────
+function svgDonut(segments, size = 130) {
+  const nonZero = segments.filter(s => s.value > 0);
+  const cx = size / 2, cy = size / 2, R = size * 0.42, r = size * 0.26;
+  if (!nonZero.length) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cy}" r="${(R+r)/2}" fill="none" stroke="var(--border)" stroke-width="${R-r}"/>
+    </svg>`;
+  }
+  if (nonZero.length === 1) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cy}" r="${(R+r)/2}" fill="none" stroke="${nonZero[0].color}" stroke-width="${R-r}" opacity="0.85"/>
+    </svg>`;
+  }
+  const total = nonZero.reduce((s, x) => s + x.value, 0);
+  const gap = 0.05;
+  let angle = -Math.PI / 2;
+  let paths = '';
+  nonZero.forEach(seg => {
+    const sweep = (seg.value / total) * 2 * Math.PI - gap;
+    if (sweep <= 0) return;
+    const end = angle + sweep;
+    const [x1,y1] = [cx + R*Math.cos(angle), cy + R*Math.sin(angle)];
+    const [x2,y2] = [cx + R*Math.cos(end),   cy + R*Math.sin(end)];
+    const [ix1,iy1] = [cx + r*Math.cos(end),  cy + r*Math.sin(end)];
+    const [ix2,iy2] = [cx + r*Math.cos(angle),cy + r*Math.sin(angle)];
+    const la = sweep > Math.PI ? 1 : 0;
+    paths += `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${la},1 ${x2.toFixed(1)},${y2.toFixed(1)} L${ix1.toFixed(1)},${iy1.toFixed(1)} A${r},${r} 0 ${la},0 ${ix2.toFixed(1)},${iy2.toFixed(1)} Z" fill="${seg.color}" opacity="0.9"/>`;
+    angle = end + gap;
+  });
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}</svg>`;
+}
+
+function chartCard(title, body, wide = false) {
+  return `<div class="chart-card${wide ? ' chart-card--wide' : ''}">
+    <div class="chart-card-title">${title}</div>
+    ${body}
+  </div>`;
+}
+
+function donutWithLegend(segments, centerNum, centerLabel) {
+  const legend = segments.map(s => `
+    <div class="chart-legend-item">
+      <span class="chart-legend-dot" style="background:${s.color}"></span>
+      <span class="chart-legend-label">${s.label}</span>
+      <span class="chart-legend-val">${s.value}</span>
+    </div>`).join('');
+  return `
+    <div class="chart-donut-row">
+      <div class="chart-donut-wrap">
+        ${svgDonut(segments)}
+        <div class="chart-donut-center">
+          <div class="chart-donut-num">${centerNum}</div>
+          <div class="chart-donut-sub">${centerLabel}</div>
+        </div>
+      </div>
+      <div class="chart-legend">${legend}</div>
+    </div>`;
+}
+
+function repoHealthChart(details) {
+  const active = details.filter(d => repoStatus(d.repo.pushed_at) === 'active').length;
+  const idle   = details.filter(d => repoStatus(d.repo.pushed_at) === 'idle').length;
+  const stale  = details.filter(d => repoStatus(d.repo.pushed_at) === 'stale').length;
+  return donutWithLegend([
+    { value: active, color: 'var(--green)',  label: 'Active  < 2d' },
+    { value: idle,   color: 'var(--orange)', label: 'Idle    < 7d' },
+    { value: stale,  color: 'var(--red)',    label: 'Stale  ≥ 7d' },
+  ], details.length, 'repos');
+}
+
+function taskDistChart(details) {
+  const totalIssues = details.reduce((s, d) => s + d.issues.length, 0);
+  const inProgress  = details.reduce((s, d) => s + d.issues.filter(i =>
+    (i.labels||[]).some(l => ['in-progress','in progress'].includes(l.name.toLowerCase()))
+  ).length, 0);
+  const blocked = details.reduce((s, d) => s + d.issues.filter(i =>
+    (i.labels||[]).some(l => l.name.toLowerCase() === 'blocked')
+  ).length, 0);
+  const backlog = Math.max(0, totalIssues - inProgress - blocked);
+  const prs     = details.reduce((s, d) => s + d.pulls.length, 0);
+  return donutWithLegend([
+    { value: backlog,     color: 'var(--blue)',   label: 'Backlog' },
+    { value: inProgress,  color: 'var(--orange)', label: 'In Progress' },
+    { value: prs,         color: 'var(--purple)', label: 'In Review' },
+    { value: blocked,     color: 'var(--red)',    label: 'Blocked' },
+  ], backlog + inProgress + prs + blocked, 'tasks');
+}
+
+function languageChart(details) {
+  const map = {};
+  details.forEach(d => { if (d.repo.language) map[d.repo.language] = (map[d.repo.language] || 0) + 1; });
+  const langs = Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, 7);
+  const max   = langs[0]?.[1] || 1;
+  if (!langs.length) return `<div class="chart-empty">No language data</div>`;
+  return `<div class="chart-bars">${langs.map(([lang, count]) => {
+    const color = LANG_COLORS[lang] || '#8b949e';
+    const pct   = Math.round((count / max) * 100);
+    return `<div class="chart-bar-row">
+      <span class="chart-bar-label"><span class="lang-dot" style="background:${color}"></span>${esc(lang)}</span>
+      <div class="chart-bar-track">
+        <div class="chart-bar-fill" style="width:${pct}%;background:${color}25;border-right:2px solid ${color}"></div>
+      </div>
+      <span class="chart-bar-val">${count}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function activityChart(details) {
+  const now    = Date.now();
+  const maxAge = 30 * 24 * 3600 * 1000;
+  const sorted = [...details].sort((a,b) => new Date(b.repo.pushed_at) - new Date(a.repo.pushed_at));
+  return `<div class="chart-activity">${sorted.map(({ repo, colorIdx }) => {
+    const age   = now - new Date(repo.pushed_at);
+    const pct   = Math.max(3, Math.round((1 - Math.min(age, maxAge) / maxAge) * 100));
+    const s     = repoStatus(repo.pushed_at);
+    const color = { active:'var(--green)', idle:'var(--orange)', stale:'var(--red)' }[s];
+    const [,fg] = AVATAR_COLORS[colorIdx];
+    return `<div class="chart-activity-row">
+      <span class="chart-activity-label" style="color:${fg}">${esc(repo.name)}</span>
+      <div class="chart-activity-track">
+        <div class="chart-activity-bar" style="width:${pct}%;background:${color}20;border-right:3px solid ${color}">
+          <span class="chart-activity-time">${timeAgo(repo.pushed_at)}</span>
+        </div>
+      </div>
+      <span class="chart-activity-ago">${formatDate(repo.pushed_at)}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderOverviewCharts(details) {
+  const el = document.getElementById('overview-charts');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="chart-row">
+      ${chartCard('Repo Health',        repoHealthChart(details))}
+      ${chartCard('Task Distribution',  taskDistChart(details))}
+      ${chartCard('Languages',          languageChart(details))}
+    </div>
+    <div class="chart-row">
+      ${chartCard('Repository Activity (last 30 days)', activityChart(details), true)}
+    </div>`;
+}
+
 // ── Overview tab ───────────────────────────────────────────
 function renderOverview(details) {
   // Team row
@@ -404,6 +549,8 @@ function renderOverview(details) {
   const blocked     = details.reduce((s, d) => s + d.issues.filter(i =>
     (i.labels||[]).some(l => l.name.toLowerCase() === 'blocked')
   ).length, 0);
+
+  renderOverviewCharts(details);
 
   const grid = document.getElementById('summary-grid');
   grid.innerHTML = `
