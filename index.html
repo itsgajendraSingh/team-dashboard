@@ -1,0 +1,201 @@
+
+<h2 class="sr-only">GitHub Team Dashboard — track all repositories, last commits, open PRs and issues across your organization</h2>
+
+<div style="padding: 1rem 0;">
+
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: gap;">
+  <div>
+    <p style="font-size: 22px; font-weight: 500; color: var(--color-text-primary); margin: 0;">Team Dashboard</p>
+    <p style="font-size: 13px; color: var(--color-text-secondary); margin: 4px 0 0;">Live status across all repositories</p>
+  </div>
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    <input id="pat-input" type="password" placeholder="GitHub Personal Access Token" style="font-size: 13px; padding: 6px 10px; width: 240px;" />
+    <input id="org-input" type="text" placeholder="org-name" style="font-size: 13px; padding: 6px 10px; width: 120px;" />
+    <button id="load-btn" onclick="loadDashboard()" style="font-size: 13px; padding: 6px 14px;">Load ↗</button>
+  </div>
+</div>
+
+<div id="summary-cards" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 1.5rem;"></div>
+
+<div id="status-msg" style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: 1rem;"></div>
+
+<div id="repo-grid" style="display: flex; flex-direction: column; gap: 10px;"></div>
+
+<div id="empty-state" style="text-align: center; padding: 3rem 1rem;">
+  <i class="ti ti-layout-dashboard" style="font-size: 48px; color: var(--color-text-secondary);" aria-hidden="true"></i>
+  <p style="font-size: 15px; color: var(--color-text-secondary); margin: 12px 0 4px;">Enter your GitHub token and org name to load your dashboard</p>
+  <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0;">Token needs <code>repo</code> and <code>read:org</code> permissions</p>
+</div>
+
+</div>
+
+<style>
+.repo-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; transition: border-color 0.15s; }
+.repo-card:hover { border-color: var(--color-border-secondary); }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 8px; border-radius: var(--border-radius-md); font-weight: 500; }
+.badge-active { background: #EAF3DE; color: #3B6D11; }
+.badge-idle { background: #FAEEDA; color: #854F0B; }
+.badge-stale { background: #FCEBEB; color: #A32D2D; }
+.metric-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 1rem; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--color-background-info); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; color: #185FA5; flex-shrink: 0; }
+</style>
+
+<script>
+const COLORS = ['#B5D4F4','#9FE1CB','#FAC775','#F4C0D1','#CEC BF6','#C0DD97','#F5C4B3'];
+const COLOR_TEXT = ['#0C447C','#085041','#633806','#72243E','#3C3489','#27500A','#712B13'];
+
+function initials(name) {
+  if (!name) return '?';
+  return name.split(/[\s-_]/).map(p => p[0]).join('').toUpperCase().slice(0,2);
+}
+
+function timeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff/86400) + 'd ago';
+  return Math.floor(diff/604800) + 'w ago';
+}
+
+function statusBadge(pushedAt) {
+  const days = (Date.now() - new Date(pushedAt)) / 86400000;
+  if (days < 2) return '<span class="badge badge-active"><i class="ti ti-circle-filled" style="font-size:8px"></i> Active</span>';
+  if (days < 7) return '<span class="badge badge-idle"><i class="ti ti-circle-filled" style="font-size:8px"></i> Idle</span>';
+  return '<span class="badge badge-stale"><i class="ti ti-circle-filled" style="font-size:8px"></i> Stale</span>';
+}
+
+async function ghFetch(url, token) {
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } });
+  if (!r.ok) throw new Error(`GitHub API error: ${r.status}`);
+  return r.json();
+}
+
+async function loadDashboard() {
+  const token = document.getElementById('pat-input').value.trim();
+  const org = document.getElementById('org-input').value.trim();
+  if (!token || !org) { setStatus('Please enter both token and org name.'); return; }
+
+  const btn = document.getElementById('load-btn');
+  btn.textContent = 'Loading…';
+  btn.disabled = true;
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('repo-grid').innerHTML = '';
+  document.getElementById('summary-cards').style.display = 'none';
+  setStatus('Fetching repositories…');
+
+  try {
+    const repos = await ghFetch(`https://api.github.com/orgs/${org}/repos?per_page=30&sort=pushed`, token);
+    if (!repos.length) { setStatus('No repositories found in this org.'); btn.textContent='Load ↗'; btn.disabled=false; return; }
+
+    setStatus(`Found ${repos.length} repositories. Loading details…`);
+
+    const details = await Promise.all(repos.map(async (repo, i) => {
+      try {
+        const [commits, pulls, issues] = await Promise.all([
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=1`, token).catch(()=>[]),
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/pulls?state=open&per_page=5`, token).catch(()=>[]),
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/issues?state=open&per_page=5`, token).catch(()=>[])
+        ]);
+        const lastCommit = commits[0] || null;
+        return { repo, lastCommit, pulls, issues: issues.filter(i => !i.pull_request), colorIdx: i % 7 };
+      } catch(e) { return { repo, lastCommit: null, pulls: [], issues: [], colorIdx: i % 7 }; }
+    }));
+
+    renderSummary(details);
+    renderCards(details);
+    setStatus('');
+  } catch(e) {
+    setStatus('Error: ' + e.message + '. Check your token and org name.');
+  }
+  btn.textContent = 'Refresh ↗';
+  btn.disabled = false;
+}
+
+function setStatus(msg) {
+  document.getElementById('status-msg').textContent = msg;
+}
+
+function renderSummary(details) {
+  const totalPRs = details.reduce((s,d) => s + d.pulls.length, 0);
+  const totalIssues = details.reduce((s,d) => s + d.issues.length, 0);
+  const active = details.filter(d => d.repo.pushed_at && (Date.now()-new Date(d.repo.pushed_at))/86400000 < 2).length;
+  const el = document.getElementById('summary-cards');
+  el.style.display = 'grid';
+  el.innerHTML = `
+    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Repositories</p><p style="font-size:24px;font-weight:500;margin:0;color:var(--color-text-primary)">${details.length}</p></div>
+    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Active today</p><p style="font-size:24px;font-weight:500;margin:0;color:#3B6D11">${active}</p></div>
+    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Open PRs</p><p style="font-size:24px;font-weight:500;margin:0;color:#185FA5">${totalPRs}</p></div>
+    <div class="metric-card"><p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Open Issues</p><p style="font-size:24px;font-weight:500;margin:0;color:#854F0B">${totalIssues}</p></div>
+  `;
+}
+
+function renderCards(details) {
+  const grid = document.getElementById('repo-grid');
+  grid.innerHTML = '';
+  details.forEach(({ repo, lastCommit, pulls, issues, colorIdx }) => {
+    const committer = lastCommit?.commit?.author?.name || lastCommit?.author?.login || '—';
+    const commitMsg = lastCommit?.commit?.message?.split('\n')[0] || 'No commits yet';
+    const commitTime = lastCommit?.commit?.author?.date ? timeAgo(lastCommit.commit.author.date) : '—';
+    const avatarBg = COLORS[colorIdx] || '#B5D4F4';
+    const avatarColor = COLOR_TEXT[colorIdx] || '#0C447C';
+    const ini = initials(committer);
+
+    const prList = pulls.slice(0,3).map(p =>
+      `<span style="font-size:11px;color:var(--color-text-secondary);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">
+        <i class="ti ti-git-pull-request" style="font-size:11px;vertical-align:-1px" aria-hidden="true"></i> ${p.title}
+      </span>`
+    ).join('');
+
+    const issueList = issues.slice(0,3).map(iss =>
+      `<span style="font-size:11px;color:var(--color-text-secondary);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">
+        <i class="ti ti-circle-dot" style="font-size:11px;vertical-align:-1px" aria-hidden="true"></i> ${iss.title}
+      </span>`
+    ).join('');
+
+    const card = document.createElement('div');
+    card.className = 'repo-card';
+    card.innerHTML = `
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <i class="ti ti-brand-github" style="font-size:20px;color:var(--color-text-secondary);flex-shrink:0" aria-hidden="true"></i>
+          <div style="min-width:0;">
+            <a href="${repo.html_url}" style="font-size:15px;font-weight:500;color:var(--color-text-primary);text-decoration:none;">${repo.name}</a>
+            ${repo.description ? `<p style="font-size:12px;color:var(--color-text-secondary);margin:2px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px">${repo.description}</p>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          ${statusBadge(repo.pushed_at)}
+          <span style="font-size:12px;color:var(--color-text-secondary)">${timeAgo(repo.pushed_at)}</span>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:14px;">
+        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;">
+          <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em">Last commit</p>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <div class="avatar" style="background:${avatarBg};color:${avatarColor}">${ini}</div>
+            <span style="font-size:12px;font-weight:500;color:var(--color-text-primary)">${committer}</span>
+            <span style="font-size:11px;color:var(--color-text-secondary)">${commitTime}</span>
+          </div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${commitMsg}">${commitMsg}</p>
+        </div>
+
+        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;">
+          <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em">
+            <i class="ti ti-git-pull-request" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> Open PRs (${pulls.length})
+          </p>
+          ${pulls.length ? prList : '<span style="font-size:12px;color:var(--color-text-secondary)">No open PRs</span>'}
+        </div>
+
+        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 12px;">
+          <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em">
+            <i class="ti ti-circle-dot" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> Open Issues (${issues.length})
+          </p>
+          ${issues.length ? issueList : '<span style="font-size:12px;color:var(--color-text-secondary)">No open issues</span>'}
+        </div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+</script>
