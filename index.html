@@ -181,6 +181,7 @@ function svg(path, w=12) {
 const SVG_PR     = svg('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>');
 const SVG_ISSUE  = svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>');
 const SVG_COMMIT = svg('<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>');
+const SVG_WIP    = svg('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>');
 const SVG_SEARCH = svg('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>');
 
 function esc(s) {
@@ -418,14 +419,18 @@ function filterBoard() {
 function drawBoard(details, q) {
   const filtered = boardRepoFilter === 'all' ? details : details.filter(d => d.repo.name === boardRepoFilter);
 
-  const issues  = [];
-  const prs     = [];
-  const shipped = [];
+  const backlog    = [];
+  const inProgress = [];
+  const prs        = [];
+  const shipped    = [];
 
   filtered.forEach(({ repo, lastCommit, pulls, issues: iss, colorIdx }) => {
     iss.forEach(issue => {
-      if (!q || issue.title.toLowerCase().includes(q) || repo.name.toLowerCase().includes(q))
-        issues.push({ item: issue, repo, colorIdx, type: 'issue' });
+      if (!q || issue.title.toLowerCase().includes(q) || repo.name.toLowerCase().includes(q)) {
+        const labels = (issue.labels || []).map(l => l.name.toLowerCase());
+        const isInProgress = labels.includes('in-progress') || labels.includes('in progress');
+        (isInProgress ? inProgress : backlog).push({ item: issue, repo, colorIdx, type: 'issue' });
+      }
     });
     pulls.forEach(pr => {
       if (!q || pr.title.toLowerCase().includes(q) || repo.name.toLowerCase().includes(q))
@@ -440,7 +445,8 @@ function drawBoard(details, q) {
 
   const board = document.getElementById('board');
   board.innerHTML = `
-    ${boardColumn('Backlog', SVG_ISSUE, issues, 'col-issues', 'var(--blue)')}
+    ${boardColumn('Backlog', SVG_ISSUE, backlog, 'col-backlog', 'var(--blue)')}
+    ${boardColumn('In Progress', SVG_WIP, inProgress, 'col-inprogress', 'var(--orange)')}
     ${boardColumn('In Review', SVG_PR, prs, 'col-prs', 'var(--purple)')}
     ${boardColumn('Shipped', SVG_COMMIT, shipped, 'col-shipped', 'var(--green)')}
   `;
