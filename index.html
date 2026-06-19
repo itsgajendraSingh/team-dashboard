@@ -124,7 +124,12 @@ async function loadDashboard() {
   setStatus('↳ fetching repositories…');
 
   try {
-    const repos = await ghFetch(`https://api.github.com/orgs/${org}/repos?per_page=30&sort=pushed`, token);
+    let repos;
+    try {
+      repos = await ghFetch(`https://api.github.com/orgs/${org}/repos?per_page=30&sort=pushed`, token);
+    } catch {
+      repos = await ghFetch(`https://api.github.com/users/${org}/repos?per_page=30&sort=pushed`, token);
+    }
     if (!repos.length) { setStatus('↳ no repositories found.'); resetBtn(); return; }
 
     setStatus(`↳ found ${repos.length} repos — loading details…`);
