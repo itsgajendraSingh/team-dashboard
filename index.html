@@ -77,7 +77,16 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-3)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="board-search" type="text" placeholder="Search tasks, PRs, commits…" oninput="filterBoard()" />
       </div>
-      <div id="board-repo-filter" class="board-repo-filter"></div>
+      <div class="board-filters">
+        <div class="board-filter-row">
+          <span class="board-filter-label">Repo</span>
+          <div id="board-repo-filter" class="board-repo-filter"></div>
+        </div>
+        <div class="board-filter-row">
+          <span class="board-filter-label">Person</span>
+          <div id="board-person-filter" class="board-repo-filter"></div>
+        </div>
+      </div>
     </div>
     <div id="board" class="board"></div>
   </div>
@@ -121,14 +130,15 @@ const LANG_COLORS = {
 };
 
 // ── State ──────────────────────────────────────────────────
-let allDetails       = [];
-let activeFilter     = 'all';
-let activeTab        = 'overview';
-let boardRepoFilter  = 'all';
-let lastRefreshed    = null;
-let autoRefreshTimer = null;
-let lastUpdatedTimer = null;
-let settingsOpen     = false;
+let allDetails        = [];
+let activeFilter      = 'all';
+let activeTab         = 'overview';
+let boardRepoFilter   = 'all';
+let boardPersonFilter = 'all';
+let lastRefreshed     = null;
+let autoRefreshTimer  = null;
+let lastUpdatedTimer  = null;
+let settingsOpen      = false;
 
 // ── Helpers ────────────────────────────────────────────────
 function initials(name) {
@@ -182,6 +192,7 @@ const SVG_PR     = svg('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="
 const SVG_ISSUE  = svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>');
 const SVG_COMMIT = svg('<circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>');
 const SVG_WIP    = svg('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>');
+const SVG_BLOCK  = svg('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>');
 const SVG_SEARCH = svg('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>');
 
 function esc(s) {
@@ -294,11 +305,11 @@ async function loadDashboard() {
     allDetails = await Promise.all(repos.map(async (repo, i) => {
       try {
         const [commits, pulls, issues] = await Promise.all([
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=1`, token).catch(() => []),
+          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=10`, token).catch(() => []),
           ghFetch(`https://api.github.com/repos/${org}/${repo.name}/pulls?state=open&per_page=10`, token).catch(() => []),
           ghFetch(`https://api.github.com/repos/${org}/${repo.name}/issues?state=open&per_page=10`, token).catch(() => [])
         ]);
-        return { repo, lastCommit: commits[0] || null, pulls, issues: issues.filter(x => !x.pull_request), colorIdx: i % 7 };
+        return { repo, lastCommit: commits[0] || null, commits, pulls, issues: issues.filter(x => !x.pull_request), colorIdx: i % 7 };
       } catch {
         return { repo, lastCommit: null, pulls: [], issues: [], colorIdx: i % 7 };
       }
@@ -362,39 +373,49 @@ function renderOverview(details) {
   const totalPRs    = details.reduce((s, d) => s + d.pulls.length, 0);
   const totalIssues = details.reduce((s, d) => s + d.issues.length, 0);
   const active      = details.filter(d => repoStatus(d.repo.pushed_at) === 'active').length;
-  const stale       = details.filter(d => repoStatus(d.repo.pushed_at) === 'stale').length;
-  const totalTasks  = totalIssues + totalPRs;
+  const inProgress  = details.reduce((s, d) => s + d.issues.filter(i =>
+    (i.labels||[]).some(l => ['in-progress','in progress'].includes(l.name.toLowerCase()))
+  ).length, 0);
+  const stalePRs    = details.reduce((s, d) => s + d.pulls.filter(p =>
+    (Date.now() - new Date(p.created_at)) > 2 * 86400000
+  ).length, 0);
+  const blocked     = details.reduce((s, d) => s + d.issues.filter(i =>
+    (i.labels||[]).some(l => l.name.toLowerCase() === 'blocked')
+  ).length, 0);
 
   const grid = document.getElementById('summary-grid');
   grid.innerHTML = `
     <div class="metric-card" onclick="switchTab('repos')" style="cursor:pointer">
       <span class="metric-label">Repositories</span>
       <span class="metric-value">${details.length}</span>
-    </div>
-    <div class="metric-card" onclick="switchTab('repos')" style="cursor:pointer">
-      <span class="metric-label">Active today</span>
-      <span class="metric-value green">${active}</span>
-    </div>
-    <div class="metric-card" onclick="switchTab('repos')" style="cursor:pointer">
-      <span class="metric-label">Stale repos</span>
-      <span class="metric-value ${stale > 0 ? 'red' : 'green'}">${stale}</span>
+      <span class="metric-sub">${active} active today</span>
     </div>
     <div class="metric-card" onclick="switchTab('board')" style="cursor:pointer">
       <span class="metric-label">Open tasks</span>
-      <span class="metric-value blue">${totalTasks}</span>
+      <span class="metric-value blue">${totalIssues + totalPRs}</span>
       <span class="metric-sub">${totalIssues} issues · ${totalPRs} PRs</span>
     </div>
     <div class="metric-card" onclick="switchTab('board')" style="cursor:pointer">
-      <span class="metric-label">In review</span>
+      <span class="metric-label">In progress</span>
+      <span class="metric-value orange">${inProgress}</span>
+      <span class="metric-sub">of ${totalIssues} issues</span>
+    </div>
+    <div class="metric-card" onclick="switchTab('board')" style="cursor:pointer">
+      <span class="metric-label">Waiting review</span>
       <span class="metric-value purple">${totalPRs}</span>
-      <span class="metric-sub">open pull requests</span>
+      <span class="metric-sub">${stalePRs > 0 ? `<span style="color:var(--red)">${stalePRs} waiting 2d+</span>` : 'all recent'}</span>
+    </div>
+    <div class="metric-card" onclick="switchTab('board')" style="cursor:pointer">
+      <span class="metric-label">Blocked</span>
+      <span class="metric-value ${blocked > 0 ? 'red' : 'green'}">${blocked}</span>
+      <span class="metric-sub">label: blocked</span>
     </div>
   `;
 }
 
 // ── Board tab ──────────────────────────────────────────────
 function renderBoard(details) {
-  // Build repo filter pills
+  // Repo filter pills
   const filterEl = document.getElementById('board-repo-filter');
   filterEl.innerHTML = `<button class="repo-filter-btn active" data-repo="all" onclick="setBoardFilter('all')">All repos</button>` +
     details.map(({ repo, colorIdx }) => {
@@ -402,12 +423,36 @@ function renderBoard(details) {
       return `<button class="repo-filter-btn" data-repo="${esc(repo.name)}" onclick="setBoardFilter('${esc(repo.name)}')" style="--pill-color:${fg}">${esc(repo.name)}</button>`;
     }).join('');
 
+  // Person filter pills — collect unique assignees + PR authors
+  const personSet = new Set();
+  details.forEach(({ pulls, issues: iss }) => {
+    iss.forEach(issue => {
+      (issue.assignees || []).forEach(a => { if (a.login) personSet.add(a.login); });
+      if (issue.assignee?.login) personSet.add(issue.assignee.login);
+    });
+    pulls.forEach(pr => {
+      if (pr.user?.login) personSet.add(pr.user.login);
+      (pr.assignees || []).forEach(a => { if (a.login) personSet.add(a.login); });
+    });
+  });
+  const personEl = document.getElementById('board-person-filter');
+  personEl.innerHTML = `<button class="repo-filter-btn active" data-person="all" onclick="setPersonFilter('all')">All people</button>` +
+    [...personSet].map(login =>
+      `<button class="repo-filter-btn" data-person="${esc(login)}" onclick="setPersonFilter('${esc(login)}')">${esc(login)}</button>`
+    ).join('');
+
   drawBoard(details, '');
 }
 
 function setBoardFilter(repo) {
   boardRepoFilter = repo;
-  document.querySelectorAll('.repo-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.repo === repo));
+  document.querySelectorAll('[data-repo]').forEach(b => b.classList.toggle('active', b.dataset.repo === repo));
+  filterBoard();
+}
+
+function setPersonFilter(person) {
+  boardPersonFilter = person;
+  document.querySelectorAll('[data-person]').forEach(b => b.classList.toggle('active', b.dataset.person === person));
   filterBoard();
 }
 
@@ -416,40 +461,75 @@ function filterBoard() {
   drawBoard(allDetails, q);
 }
 
+function matchesPerson(item, type) {
+  if (boardPersonFilter === 'all') return true;
+  if (type === 'issue') {
+    return item.assignee?.login === boardPersonFilter ||
+           (item.assignees || []).some(a => a.login === boardPersonFilter);
+  }
+  if (type === 'pr') {
+    return item.user?.login === boardPersonFilter ||
+           (item.assignees || []).some(a => a.login === boardPersonFilter);
+  }
+  if (type === 'commit') {
+    return item.author?.login === boardPersonFilter ||
+           item.commit?.author?.name === boardPersonFilter;
+  }
+  return true;
+}
+
 function drawBoard(details, q) {
   const filtered = boardRepoFilter === 'all' ? details : details.filter(d => d.repo.name === boardRepoFilter);
+  const cutoff   = Date.now() - 7 * 24 * 3600 * 1000; // last 7 days for Shipped
 
   const backlog    = [];
   const inProgress = [];
+  const blocked    = [];
   const prs        = [];
   const shipped    = [];
 
-  filtered.forEach(({ repo, lastCommit, pulls, issues: iss, colorIdx }) => {
+  filtered.forEach(({ repo, commits: allCommits, pulls, issues: iss, colorIdx }) => {
     iss.forEach(issue => {
-      if (!q || issue.title.toLowerCase().includes(q) || repo.name.toLowerCase().includes(q)) {
-        const labels = (issue.labels || []).map(l => l.name.toLowerCase());
-        const isInProgress = labels.includes('in-progress') || labels.includes('in progress');
-        (isInProgress ? inProgress : backlog).push({ item: issue, repo, colorIdx, type: 'issue' });
+      if (q && !issue.title.toLowerCase().includes(q) && !repo.name.toLowerCase().includes(q)) return;
+      if (!matchesPerson(issue, 'issue')) return;
+      const labels = (issue.labels || []).map(l => l.name.toLowerCase());
+      if (labels.includes('blocked')) {
+        blocked.push({ item: issue, repo, colorIdx, type: 'issue' });
+      } else if (labels.includes('in-progress') || labels.includes('in progress')) {
+        inProgress.push({ item: issue, repo, colorIdx, type: 'issue' });
+      } else {
+        backlog.push({ item: issue, repo, colorIdx, type: 'issue' });
       }
     });
     pulls.forEach(pr => {
-      if (!q || pr.title.toLowerCase().includes(q) || repo.name.toLowerCase().includes(q))
-        prs.push({ item: pr, repo, colorIdx, type: 'pr' });
+      if (q && !pr.title.toLowerCase().includes(q) && !repo.name.toLowerCase().includes(q)) return;
+      if (!matchesPerson(pr, 'pr')) return;
+      prs.push({ item: pr, repo, colorIdx, type: 'pr' });
     });
-    if (lastCommit) {
-      const msg = lastCommit.commit?.message?.split('\n')[0] || '';
-      if (!q || msg.toLowerCase().includes(q) || repo.name.toLowerCase().includes(q))
-        shipped.push({ item: lastCommit, repo, colorIdx, type: 'commit' });
-    }
+    (allCommits || []).forEach(commit => {
+      const date = new Date(commit.commit?.author?.date);
+      if (date < cutoff) return;
+      const msg = commit.commit?.message?.split('\n')[0] || '';
+      if (q && !msg.toLowerCase().includes(q) && !repo.name.toLowerCase().includes(q)) return;
+      if (!matchesPerson(commit, 'commit')) return;
+      shipped.push({ item: commit, repo, colorIdx, type: 'commit' });
+    });
   });
 
+  // Sort shipped newest first
+  shipped.sort((a, b) => new Date(b.item.commit?.author?.date) - new Date(a.item.commit?.author?.date));
+
   const board = document.getElementById('board');
-  board.innerHTML = `
-    ${boardColumn('Backlog', SVG_ISSUE, backlog, 'col-backlog', 'var(--blue)')}
-    ${boardColumn('In Progress', SVG_WIP, inProgress, 'col-inprogress', 'var(--orange)')}
-    ${boardColumn('In Review', SVG_PR, prs, 'col-prs', 'var(--purple)')}
-    ${boardColumn('Shipped', SVG_COMMIT, shipped, 'col-shipped', 'var(--green)')}
-  `;
+  const cols = [
+    boardColumn('Backlog',     SVG_ISSUE,  backlog,    'col-backlog',    'var(--blue)'),
+    boardColumn('In Progress', SVG_WIP,    inProgress, 'col-inprogress', 'var(--orange)'),
+    blocked.length ? boardColumn('Blocked', SVG_BLOCK, blocked, 'col-blocked', 'var(--red)') : '',
+    boardColumn('In Review',   SVG_PR,     prs,        'col-prs',        'var(--purple)'),
+    boardColumn('Shipped',     SVG_COMMIT, shipped,    'col-shipped',    'var(--green)'),
+  ].filter(Boolean);
+
+  board.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`;
+  board.innerHTML = cols.join('');
 }
 
 function boardColumn(title, icon, items, id, accentColor) {
@@ -497,12 +577,18 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
     const author   = item.user?.login || '—';
     const date     = item.created_at;
     const isDraft  = item.draft;
+    const ageDays  = (Date.now() - new Date(date)) / 86400000;
+    const ageClass = ageDays > 5 ? 'task-card--old' : ageDays > 2 ? 'task-card--warn' : '';
+    const ageBadge = ageDays > 2
+      ? `<span class="age-badge ${ageDays > 5 ? 'age-badge--old' : 'age-badge--warn'}">${Math.floor(ageDays)}d waiting</span>`
+      : '';
     return `
-      <a class="task-card" href="${item.html_url}" target="_blank" rel="noopener">
+      <a class="task-card ${ageClass}" href="${item.html_url}" target="_blank" rel="noopener">
         <div class="task-card-top">
           ${repoBadge(repo.name, colorIdx)}
           <span class="task-number">#${item.number}</span>
           ${isDraft ? `<span class="draft-badge">Draft</span>` : ''}
+          ${ageBadge}
         </div>
         <div class="task-title">${esc(item.title)}</div>
         <div class="task-footer">

@@ -338,7 +338,7 @@ input:focus            { border-color: var(--blue); }
 /* ── Board ────────────────────────────────────────────── */
 .board-toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   margin-bottom: 16px;
   flex-wrap: wrap;
@@ -366,6 +366,31 @@ input:focus            { border-color: var(--blue); }
 }
 
 .board-search-wrap input::placeholder { color: var(--text-3); }
+
+.board-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.board-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.board-filter-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  width: 36px;
+  flex-shrink: 0;
+}
 
 .board-repo-filter {
   display: flex;
@@ -727,6 +752,22 @@ input:focus            { border-color: var(--blue); }
 ::-webkit-scrollbar       { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+
+/* ── PR age indicators ────────────────────────────────── */
+.task-card--warn { border-left: 3px solid var(--orange); padding-left: 10px; }
+.task-card--old  { border-left: 3px solid var(--red);    padding-left: 10px; }
+
+.age-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 20px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.age-badge--warn { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(210,153,34,.3); }
+.age-badge--old  { background: var(--red-bg);    color: var(--red);    border: 1px solid rgba(248,81,73,.3); }
 
 /* ── Spinner ──────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
