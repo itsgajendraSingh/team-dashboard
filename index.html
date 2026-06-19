@@ -582,6 +582,8 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
     const ageBadge = ageDays > 2
       ? `<span class="age-badge ${ageDays > 5 ? 'age-badge--old' : 'age-badge--warn'}">${Math.floor(ageDays)}d waiting</span>`
       : '';
+    const fromBranch = item.head?.ref || '';
+    const toBranch   = item.base?.ref || '';
     return `
       <a class="task-card ${ageClass}" href="${item.html_url}" target="_blank" rel="noopener">
         <div class="task-card-top">
@@ -591,6 +593,7 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
           ${ageBadge}
         </div>
         <div class="task-title">${esc(item.title)}</div>
+        ${fromBranch ? `<div class="branch-flow"><span class="branch-name">${esc(fromBranch)}</span><span class="branch-arrow">→</span><span class="branch-name branch-target">${esc(toBranch)}</span></div>` : ''}
         <div class="task-footer">
           <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
           <span class="task-author">${esc(author)}</span>

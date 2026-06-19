@@ -753,6 +753,32 @@ input:focus            { border-color: var(--blue); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
 
+/* ── Branch flow on PR cards ──────────────────────────── */
+.branch-flow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.branch-name {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.branch-target { color: var(--blue); border-color: rgba(88,166,255,.25); }
+.branch-arrow  { font-size: 10px; color: var(--text-3); flex-shrink: 0; }
+
 /* ── PR age indicators ────────────────────────────────── */
 .task-card--warn { border-left: 3px solid var(--orange); padding-left: 10px; }
 .task-card--old  { border-left: 3px solid var(--red);    padding-left: 10px; }
