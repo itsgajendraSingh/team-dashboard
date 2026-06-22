@@ -66,6 +66,10 @@
 
   <!-- ── Overview tab ──────────────────────────────────── -->
   <div id="tab-overview" class="tab-content">
+    <div class="overview-topbar">
+      <div id="stale-alert" class="stale-alert" style="display:none"></div>
+      <button id="copy-report-btn" class="btn-copy-report" onclick="copyReport()">Copy Report</button>
+    </div>
     <div id="team-row" class="team-row"></div>
     <div id="summary-grid" class="summary-grid"></div>
     <div id="overview-charts" class="overview-charts"></div>
@@ -208,6 +212,59 @@ function safeUrl(url) {
 
 function sanitizeColor(hex) {
   return /^[0-9a-f]{6}$/i.test(hex) ? hex : '8b949e';
+}
+
+function loginColorIdx(login) {
+  let h = 0;
+  for (const c of String(login)) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return h % 7;
+}
+
+function copyReport() {
+  const details = allDetails;
+  if (!details.length) return;
+  const org          = document.getElementById('org-input').value.trim();
+  const totalPRs     = details.reduce((s, d) => s + d.pulls.length, 0);
+  const totalIssues  = details.reduce((s, d) => s + d.issues.length, 0);
+  const active       = details.filter(d => repoStatus(d.repo.pushed_at) === 'active').length;
+  const inProgress   = details.reduce((s, d) => s + d.issues.filter(i =>
+    (i.labels||[]).some(l => ['in-progress','in progress'].includes(l.name.toLowerCase()))
+  ).length, 0);
+  const blocked      = details.reduce((s, d) => s + d.issues.filter(i =>
+    (i.labels||[]).some(l => l.name.toLowerCase() === 'blocked')
+  ).length, 0);
+  const veryStale    = details.filter(d => (Date.now() - new Date(d.repo.pushed_at)) > 14 * 86400000);
+  const unassigned   = details.reduce((s, d) => s + d.issues.filter(i => !i.assignee && !(i.assignees||[]).length).length, 0);
+
+  const date = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  const lines = [
+    `Team Dashboard Report — ${org} — ${date}`,
+    '─'.repeat(50),
+    `Repositories : ${details.length} total  (${active} active today)`,
+    `Open tasks   : ${totalIssues + totalPRs}  (${totalIssues} issues · ${totalPRs} PRs)`,
+    `In progress  : ${inProgress}`,
+    `Waiting review: ${totalPRs} PRs`,
+    `Blocked      : ${blocked}`,
+    `Unassigned   : ${unassigned} issues`,
+  ];
+  if (veryStale.length) {
+    lines.push('');
+    lines.push(`⚠ Inactive 14+ days (${veryStale.length}): ${veryStale.map(d => d.repo.name).join(', ')}`);
+  }
+  lines.push('');
+  lines.push('Repos:');
+  details.forEach(d => {
+    const s = repoStatus(d.repo.pushed_at);
+    const badge = s === 'active' ? '🟢' : s === 'idle' ? '🟡' : '🔴';
+    lines.push(`  ${badge} ${d.repo.name.padEnd(28)} last push: ${timeAgo(d.repo.pushed_at)}  issues: ${d.issues.length}  PRs: ${d.pulls.length}`);
+  });
+
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    const btn = document.getElementById('copy-report-btn');
+    if (!btn) return;
+    btn.textContent = '✓ Copied';
+    setTimeout(() => { btn.textContent = 'Copy Report'; }, 2000);
+  });
 }
 
 // ── GitHub API ─────────────────────────────────────────────
@@ -550,6 +607,18 @@ function renderOverview(details) {
     (i.labels||[]).some(l => l.name.toLowerCase() === 'blocked')
   ).length, 0);
 
+  // Stale alert
+  const veryStale = details.filter(d => (Date.now() - new Date(d.repo.pushed_at)) > 14 * 86400000);
+  const alertEl   = document.getElementById('stale-alert');
+  if (alertEl) {
+    alertEl.style.display = veryStale.length ? 'flex' : 'none';
+    alertEl.innerHTML = veryStale.length ? `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span><strong>${veryStale.length} repo${veryStale.length > 1 ? 's' : ''} inactive 14+ days:</strong>
+      ${veryStale.map(d => `<span class="stale-repo-name">${esc(d.repo.name)}</span>`).join('')}
+      — consider archiving or reassigning</span>` : '';
+  }
+
   renderOverviewCharts(details);
 
   const grid = document.getElementById('summary-grid');
@@ -719,23 +788,29 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
   const [avatarBg, avatarFg] = AVATAR_COLORS[colorIdx];
 
   if (type === 'issue') {
-    const author  = item.user?.login || '—';
-    const date    = item.created_at;
-    const labels  = (item.labels || []).slice(0, 3).map(l => {
+    const author    = item.user?.login || '—';
+    const date      = item.created_at;
+    const assignee  = item.assignees?.[0]?.login || item.assignee?.login || null;
+    const milestone = item.milestone?.title || null;
+    const labels    = (item.labels || []).slice(0, 3).map(l => {
       const c = sanitizeColor(l.color);
       return `<span class="label-pill" style="background:#${c}22;color:#${c};border-color:#${c}44">${esc(l.name)}</span>`;
     }).join('');
+    const [aBg, aFg] = assignee ? AVATAR_COLORS[loginColorIdx(assignee)] : [];
+    const assigneeHtml = assignee
+      ? `<span class="avatar sm" style="background:${aBg};color:${aFg}" title="Assigned to ${esc(assignee)}">${initials(assignee)}</span><span class="task-author">${esc(assignee)}</span>`
+      : `<span class="unassigned-badge">Unassigned</span>`;
     return `
       <a class="task-card" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
         <div class="task-card-top">
           ${repoBadge(repo.name, colorIdx)}
           <span class="task-number">#${item.number}</span>
+          ${milestone ? `<span class="milestone-badge">◎ ${esc(milestone)}</span>` : ''}
         </div>
         <div class="task-title">${esc(item.title)}</div>
         ${labels ? `<div class="task-labels">${labels}</div>` : ''}
         <div class="task-footer">
-          <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
-          <span class="task-author">${esc(author)}</span>
+          ${assigneeHtml}
           <span class="task-date">${timeAgo(date)} · ${formatDate(date)}</span>
         </div>
       </a>`;
@@ -752,6 +827,20 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
       : '';
     const fromBranch = item.head?.ref || '';
     const toBranch   = item.base?.ref || '';
+    const reviewers  = (item.requested_reviewers || []).slice(0, 3);
+    const reviewerHtml = reviewers.length
+      ? `<div class="reviewer-row">
+           <span class="reviewer-label">Reviewers</span>
+           ${reviewers.map(r => {
+             const [rb, rf] = AVATAR_COLORS[loginColorIdx(r.login)];
+             return `<span class="avatar sm" style="background:${rb};color:${rf}" title="${esc(r.login)}">${initials(r.login)}</span>`;
+           }).join('')}
+           <span class="reviewer-names">${reviewers.map(r => esc(r.login)).join(', ')}</span>
+         </div>`
+      : `<div class="reviewer-row reviewer-none">
+           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+           No reviewer assigned
+         </div>`;
     return `
       <a class="task-card ${ageClass}" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
         <div class="task-card-top">
@@ -762,6 +851,7 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
         </div>
         <div class="task-title">${esc(item.title)}</div>
         ${fromBranch ? `<div class="branch-flow"><span class="branch-name">${esc(fromBranch)}</span><span class="branch-arrow">→</span><span class="branch-name branch-target">${esc(toBranch)}</span></div>` : ''}
+        ${reviewerHtml}
         <div class="task-footer">
           <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
           <span class="task-author">${esc(author)}</span>
