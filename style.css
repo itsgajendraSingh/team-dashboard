@@ -490,33 +490,71 @@ input:focus            { border-color: var(--blue); }
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  padding: 11px 13px;
   text-decoration: none;
-  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
   cursor: pointer;
+  position: relative;
 }
 
 .task-card:hover {
   border-color: var(--border-2);
   background: #1c2128;
-  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+
+.task-card--commit {
+  opacity: 0.85;
 }
 
 .task-card-top {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
   flex-wrap: wrap;
 }
 
+/* ── Inline issue/PR/commit reference line ─────────────── */
+.task-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-ref--sha {
+  letter-spacing: 0.03em;
+}
+
+.task-ref-sep {
+  color: var(--border-2);
+  font-family: var(--font-mono);
+}
+
+.task-type-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.task-type-icon--pr { color: var(--green); }
+
 .task-title {
   font-size: 13px;
+  font-weight: 500;
   color: var(--text);
-  line-height: 1.4;
-  margin-bottom: 6px;
+  line-height: 1.45;
+  margin-bottom: 7px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -525,13 +563,13 @@ input:focus            { border-color: var(--blue); }
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 
 .label-pill {
   font-size: 10px;
   font-weight: 500;
-  padding: 1px 7px;
+  padding: 2px 7px;
   border-radius: 20px;
   border: 1px solid;
   white-space: nowrap;
@@ -540,15 +578,29 @@ input:focus            { border-color: var(--blue); }
 .task-footer {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 4px;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.task-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-footer-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .task-author {
   font-size: 11px;
   color: var(--text-2);
   font-weight: 500;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -561,17 +613,11 @@ input:focus            { border-color: var(--blue); }
   white-space: nowrap;
 }
 
+/* kept for legacy Repos tab references */
 .task-number {
   font-size: 10px;
   color: var(--text-3);
   font-family: var(--font-mono);
-}
-
-.task-sha {
-  font-size: 10px;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  letter-spacing: 0.04em;
 }
 
 .draft-badge {
@@ -580,7 +626,8 @@ input:focus            { border-color: var(--blue); }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 0 6px;
+  padding: 1px 7px;
+  flex-shrink: 0;
 }
 
 /* ── Repo pill (board cards) ──────────────────────────── */
@@ -1058,8 +1105,9 @@ input:focus            { border-color: var(--blue); }
 
 .reviewer-none {
   font-size: 11px;
-  color: var(--orange);
-  gap: 4px;
+  color: var(--text-3);
+  gap: 5px;
+  font-style: italic;
 }
 
 /* ── Fetch error badge (Repos tab) ───────────────────── */
@@ -1074,16 +1122,22 @@ input:focus            { border-color: var(--blue); }
 }
 
 /* ── PR age indicators ────────────────────────────────── */
-.task-card--warn { border-left: 3px solid var(--orange); padding-left: 10px; }
-.task-card--old  { border-left: 3px solid var(--red);    padding-left: 10px; }
+.task-card--warn {
+  border-left: 3px solid var(--orange);
+  padding-left: 10px;
+}
+.task-card--old {
+  border-left: 3px solid var(--red);
+  padding-left: 10px;
+}
 
 .age-badge {
   font-size: 10px;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 20px;
-  margin-left: auto;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .age-badge--warn { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(210,153,34,.3); }
@@ -1091,3 +1145,197 @@ input:focus            { border-color: var(--blue); }
 
 /* ── Spinner ──────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Card detail modal ────────────────────────────────── */
+.card-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 9000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+.card-modal-overlay.is-open { display: flex; }
+
+.card-modal {
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 780px;
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  animation: modal-in 0.15s ease;
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)  scale(1); }
+}
+
+.card-modal-header {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  flex-shrink: 0;
+}
+.card-modal-body {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.cm-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 5px;
+  transition: background 0.12s, color 0.12s;
+}
+.cm-close:hover { background: var(--surface-2); color: var(--text); }
+
+.cm-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.cm-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.cm-type--issue { color: #3fb950; }
+.cm-type--pr    { color: #a371f7; }
+.cm-ref {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+.cm-date {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
+  padding-right: 36px;
+}
+
+.cm-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  padding-right: 36px;
+}
+
+.cm-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.cm-grid {
+  display: grid;
+  grid-template-columns: 1fr 230px;
+  gap: 0;
+  min-height: 0;
+}
+.cm-main {
+  padding: 20px 22px;
+  border-right: 1px solid var(--border);
+}
+.cm-sidebar {
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cm-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+
+.cm-description {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cm-description--mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 12px 14px;
+}
+.cm-no-body {
+  font-size: 13px;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.cm-sidebar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cm-sidebar-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+.cm-sidebar-val {
+  font-size: 12px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.cm-gh-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  margin-top: auto;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.cm-gh-link:hover { background: var(--surface-2); border-color: var(--border-2); }
+
+@media (max-width: 600px) {
+  .cm-grid { grid-template-columns: 1fr; }
+  .cm-main { border-right: none; border-bottom: 1px solid var(--border); }
+}

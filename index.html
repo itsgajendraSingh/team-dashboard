@@ -279,6 +279,7 @@ async function ghFetch(url, token) {
 }
 
 async function fetchAllRepos(org, token) {
+  // Fetch org/user repos
   let page = 1, all = [], useUser = false;
   while (true) {
     let batch;
@@ -298,6 +299,26 @@ async function fetchAllRepos(org, token) {
     if (batch.length < 100) break;
     page++;
   }
+
+  // Also fetch repos where the token owner is a collaborator (but not the org/user above)
+  try {
+    let collabPage = 1, collabAll = [];
+    while (true) {
+      const batch = await ghFetch(
+        `https://api.github.com/user/repos?affiliation=collaborator&per_page=100&sort=pushed&page=${collabPage}`,
+        token
+      );
+      collabAll = collabAll.concat(batch);
+      if (batch.length < 100) break;
+      collabPage++;
+    }
+    // Deduplicate: skip any repo already in `all` by full_name
+    const seen = new Set(all.map(r => r.full_name));
+    for (const r of collabAll) {
+      if (!seen.has(r.full_name)) { all.push(r); seen.add(r.full_name); }
+    }
+  } catch { /* token may lack user scope — silently skip */ }
+
   return all;
 }
 
@@ -380,10 +401,11 @@ async function loadDashboard() {
 
     allDetails = await Promise.all(repos.map(async (repo, i) => {
       try {
+        const owner = repo.owner?.login || org;
         const [commits, pulls, issues] = await Promise.all([
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/commits?per_page=1`, token).catch(() => []),
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/pulls?state=open&per_page=100`, token).catch(() => []),
-          ghFetch(`https://api.github.com/repos/${org}/${repo.name}/issues?state=open&per_page=100`, token).catch(() => [])
+          ghFetch(`https://api.github.com/repos/${owner}/${repo.name}/commits?per_page=1`, token).catch(() => []),
+          ghFetch(`https://api.github.com/repos/${owner}/${repo.name}/pulls?state=open&per_page=100`, token).catch(() => []),
+          ghFetch(`https://api.github.com/repos/${owner}/${repo.name}/issues?state=open&per_page=100`, token).catch(() => [])
         ]);
         return { repo, lastCommit: commits[0] || null, pulls, issues: issues.filter(x => !x.pull_request), colorIdx: i % 7, fetchError: false };
       } catch {
@@ -788,42 +810,45 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
   const [avatarBg, avatarFg] = AVATAR_COLORS[colorIdx];
 
   if (type === 'issue') {
-    const author    = item.user?.login || '—';
     const date      = item.created_at;
     const assignee  = item.assignees?.[0]?.login || item.assignee?.login || null;
     const milestone = item.milestone?.title || null;
-    const labels    = (item.labels || []).slice(0, 3).map(l => {
+    const labels    = (item.labels || []).slice(0, 4).map(l => {
       const c = sanitizeColor(l.color);
       return `<span class="label-pill" style="background:#${c}22;color:#${c};border-color:#${c}44">${esc(l.name)}</span>`;
     }).join('');
     const [aBg, aFg] = assignee ? AVATAR_COLORS[loginColorIdx(assignee)] : [];
     const assigneeHtml = assignee
-      ? `<span class="avatar sm" style="background:${aBg};color:${aFg}" title="Assigned to ${esc(assignee)}">${initials(assignee)}</span><span class="task-author">${esc(assignee)}</span>`
+      ? `<span class="avatar sm" style="background:${aBg};color:${aFg}" title="${esc(assignee)}">${initials(assignee)}</span>
+         <span class="task-author">${esc(assignee)}</span>`
       : `<span class="unassigned-badge">Unassigned</span>`;
     return `
-      <a class="task-card" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
+      <div class="task-card" onclick="openCard(${item.number},'${esc(repo.owner?.login || repo.full_name?.split('/')[0] || '')}','${esc(repo.name)}','issue')" role="button" tabindex="0">
         <div class="task-card-top">
-          ${repoBadge(repo.name, colorIdx)}
-          <span class="task-number">#${item.number}</span>
-          ${milestone ? `<span class="milestone-badge">◎ ${esc(milestone)}</span>` : ''}
+          <span class="task-ref">
+            <svg class="task-type-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            #${item.number} <span class="task-ref-sep">·</span> ${esc(repo.name)}
+          </span>
         </div>
         <div class="task-title">${esc(item.title)}</div>
         ${labels ? `<div class="task-labels">${labels}</div>` : ''}
         <div class="task-footer">
-          ${assigneeHtml}
-          <span class="task-date">${timeAgo(date)} · ${formatDate(date)}</span>
+          <div class="task-footer-left">${assigneeHtml}</div>
+          <div class="task-footer-right">
+            ${milestone ? `<span class="milestone-badge">◎ ${esc(milestone)}</span>` : `<span class="task-date">${timeAgo(date)}</span>`}
+          </div>
         </div>
-      </a>`;
+      </div>`;
   }
 
   if (type === 'pr') {
-    const author   = item.user?.login || '—';
-    const date     = item.created_at;
-    const isDraft  = item.draft;
-    const ageDays  = (Date.now() - new Date(date)) / 86400000;
-    const ageClass = ageDays > 5 ? 'task-card--old' : ageDays > 2 ? 'task-card--warn' : '';
-    const ageBadge = ageDays > 2
-      ? `<span class="age-badge ${ageDays > 5 ? 'age-badge--old' : 'age-badge--warn'}">${Math.floor(ageDays)}d waiting</span>`
+    const author     = item.user?.login || '—';
+    const date       = item.created_at;
+    const isDraft    = item.draft;
+    const ageDays    = (Date.now() - new Date(date)) / 86400000;
+    const ageClass   = ageDays > 5 ? 'task-card--old' : ageDays > 2 ? 'task-card--warn' : '';
+    const ageBadge   = ageDays > 2
+      ? `<span class="age-badge ${ageDays > 5 ? 'age-badge--old' : 'age-badge--warn'}">${Math.floor(ageDays)}d</span>`
       : '';
     const fromBranch = item.head?.ref || '';
     const toBranch   = item.base?.ref || '';
@@ -838,49 +863,304 @@ function buildTaskCard({ item, repo, colorIdx, type }) {
            <span class="reviewer-names">${reviewers.map(r => esc(r.login)).join(', ')}</span>
          </div>`
       : `<div class="reviewer-row reviewer-none">
-           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
            No reviewer assigned
          </div>`;
     return `
-      <a class="task-card ${ageClass}" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
+      <div class="task-card ${ageClass}" onclick="openCard(${item.number},'${esc(repo.owner?.login || repo.full_name?.split('/')[0] || '')}','${esc(repo.name)}','pr')" role="button" tabindex="0">
         <div class="task-card-top">
-          ${repoBadge(repo.name, colorIdx)}
-          <span class="task-number">#${item.number}</span>
+          <span class="task-ref">
+            <svg class="task-type-icon task-type-icon--pr" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+            #${item.number} <span class="task-ref-sep">·</span> ${esc(repo.name)}
+          </span>
           ${isDraft ? `<span class="draft-badge">Draft</span>` : ''}
           ${ageBadge}
         </div>
         <div class="task-title">${esc(item.title)}</div>
-        ${fromBranch ? `<div class="branch-flow"><span class="branch-name">${esc(fromBranch)}</span><span class="branch-arrow">→</span><span class="branch-name branch-target">${esc(toBranch)}</span></div>` : ''}
+        ${fromBranch ? `<div class="branch-flow">
+          <span class="branch-name">${esc(fromBranch)}</span>
+          <span class="branch-arrow">→</span>
+          <span class="branch-name branch-target">${esc(toBranch)}</span>
+        </div>` : ''}
         ${reviewerHtml}
         <div class="task-footer">
-          <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
-          <span class="task-author">${esc(author)}</span>
-          <span class="task-date">${timeAgo(date)} · ${formatDate(date)}</span>
+          <div class="task-footer-left">
+            <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
+            <span class="task-author">${esc(author)}</span>
+          </div>
+          <div class="task-footer-right">
+            <span class="task-date">${timeAgo(date)}</span>
+          </div>
         </div>
-      </a>`;
+      </div>`;
   }
 
   if (type === 'commit') {
-    const author  = item.commit?.author?.name || item.author?.login || '—';
-    const date    = item.commit?.author?.date;
-    const msg     = item.commit?.message?.split('\n')[0] || '';
-    const sha     = item.sha?.slice(0, 7) || '';
+    const author = item.commit?.author?.name || item.author?.login || '—';
+    const date   = item.commit?.author?.date;
+    const msg    = item.commit?.message?.split('\n')[0] || '';
+    const sha    = item.sha?.slice(0, 7) || '';
     return `
-      <a class="task-card" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
+      <div class="task-card task-card--commit" onclick="openCard('${item.sha}','${esc(repo.owner?.login || repo.full_name?.split('/')[0] || '')}','${esc(repo.name)}','commit')" role="button" tabindex="0">
         <div class="task-card-top">
-          ${repoBadge(repo.name, colorIdx)}
-          <span class="task-number task-sha">${sha}</span>
+          <span class="task-ref task-ref--sha">
+            <svg class="task-type-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
+            ${sha} <span class="task-ref-sep">·</span> ${esc(repo.name)}
+          </span>
         </div>
         <div class="task-title">${esc(msg)}</div>
         <div class="task-footer">
-          <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
-          <span class="task-author">${esc(author)}</span>
-          <span class="task-date">${timeAgo(date)} · ${formatDate(date)}</span>
+          <div class="task-footer-left">
+            <span class="avatar sm" style="background:${avatarBg};color:${avatarFg}">${initials(author)}</span>
+            <span class="task-author">${esc(author)}</span>
+          </div>
+          <div class="task-footer-right">
+            <span class="task-date">${timeAgo(date)}</span>
+          </div>
         </div>
-      </a>`;
+      </div>`;
   }
 
   return '';
+}
+
+// ── Card detail modal ──────────────────────────────────────
+
+function openCard(ref, owner, repoName, type) {
+  // Find the item in allDetails
+  const detail = allDetails.find(d => d.repo.name === repoName &&
+    (d.repo.owner?.login === owner || d.repo.full_name?.startsWith(owner + '/')));
+  if (!detail) return;
+
+  let item;
+  if (type === 'issue') {
+    item = detail.issues.find(i => i.number === ref);
+  } else if (type === 'pr') {
+    item = detail.pulls.find(p => p.number === ref);
+  } else {
+    // commit — ref is full sha
+    item = detail.lastCommit?.sha === ref ? detail.lastCommit : null;
+  }
+  if (!item && type !== 'commit') return;
+
+  const overlay = document.getElementById('card-modal-overlay');
+  const header  = document.getElementById('card-modal-header');
+  const body    = document.getElementById('card-modal-body');
+
+  if (type === 'issue') {
+    const assignees = (item.assignees || (item.assignee ? [item.assignee] : []));
+    const labels    = (item.labels || []);
+    const milestone = item.milestone?.title;
+    const bodyText  = item.body || '';
+
+    const [oBg, oFg] = AVATAR_COLORS[loginColorIdx(item.user?.login || '')];
+    header.innerHTML = `
+      <div class="cm-meta">
+        <span class="cm-type cm-type--issue">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Issue
+        </span>
+        <span class="cm-ref">#${item.number} · ${esc(repoName)}</span>
+        <span class="cm-date">${formatDate(item.created_at)}</span>
+      </div>
+      <div class="cm-title">${esc(item.title)}</div>
+      ${labels.length ? `<div class="cm-labels">${labels.map(l => {
+        const c = sanitizeColor(l.color);
+        return `<span class="label-pill" style="background:#${c}22;color:#${c};border-color:#${c}44">${esc(l.name)}</span>`;
+      }).join('')}</div>` : ''}
+      <button class="cm-close" onclick="closeCardModal()">✕</button>`;
+
+    const assigneeHtml = assignees.length
+      ? assignees.map(a => {
+          const [ab, af] = AVATAR_COLORS[loginColorIdx(a.login)];
+          return `<span class="avatar sm" style="background:${ab};color:${af}">${initials(a.login)}</span> ${esc(a.login)}`;
+        }).join(', ')
+      : `<span class="unassigned-badge">Unassigned</span>`;
+
+    body.innerHTML = `
+      <div class="cm-grid">
+        <div class="cm-main">
+          ${bodyText
+            ? `<div class="cm-section-label">Description</div>
+               <div class="cm-description">${esc(bodyText).replace(/\n/g, '<br>')}</div>`
+            : `<div class="cm-no-body">No description provided.</div>`}
+        </div>
+        <div class="cm-sidebar">
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Assignee</span>
+            <span class="cm-sidebar-val">${assigneeHtml}</span>
+          </div>
+          ${milestone ? `<div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Milestone</span>
+            <span class="milestone-badge">◎ ${esc(milestone)}</span>
+          </div>` : ''}
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Repository</span>
+            <span class="cm-sidebar-val">${esc(repoName)}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Opened by</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="avatar sm" style="background:${oBg};color:${oFg}">${initials(item.user?.login||'')}</span>
+              <span class="cm-sidebar-val">${esc(item.user?.login||'—')}</span>
+            </div>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Created</span>
+            <span class="cm-sidebar-val">${formatDate(item.created_at)} · ${timeAgo(item.created_at)}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Updated</span>
+            <span class="cm-sidebar-val">${timeAgo(item.updated_at)}</span>
+          </div>
+          <a class="cm-gh-link" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>`;
+
+  } else if (type === 'pr') {
+    const ageDays    = (Date.now() - new Date(item.created_at)) / 86400000;
+    const fromBranch = item.head?.ref || '';
+    const toBranch   = item.base?.ref || '';
+    const reviewers  = item.requested_reviewers || [];
+    const bodyText   = item.body || '';
+    const [oBg, oFg] = AVATAR_COLORS[loginColorIdx(item.user?.login || '')];
+
+    header.innerHTML = `
+      <div class="cm-meta">
+        <span class="cm-type cm-type--pr">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+          Pull Request${item.draft ? ' · Draft' : ''}
+        </span>
+        <span class="cm-ref">#${item.number} · ${esc(repoName)}</span>
+        <span class="cm-date">${formatDate(item.created_at)}</span>
+        ${ageDays > 2 ? `<span class="age-badge ${ageDays > 5 ? 'age-badge--old' : 'age-badge--warn'}">${Math.floor(ageDays)}d open</span>` : ''}
+      </div>
+      <div class="cm-title">${esc(item.title)}</div>
+      ${fromBranch ? `<div class="branch-flow" style="margin-top:6px">
+        <span class="branch-name">${esc(fromBranch)}</span>
+        <span class="branch-arrow">→</span>
+        <span class="branch-name branch-target">${esc(toBranch)}</span>
+      </div>` : ''}
+      <button class="cm-close" onclick="closeCardModal()">✕</button>`;
+
+    const reviewerHtml = reviewers.length
+      ? reviewers.map(r => {
+          const [rb, rf] = AVATAR_COLORS[loginColorIdx(r.login)];
+          return `<span class="avatar sm" style="background:${rb};color:${rf}" title="${esc(r.login)}">${initials(r.login)}</span> ${esc(r.login)}`;
+        }).join('  ')
+      : `<span style="color:var(--text-3);font-style:italic">None assigned</span>`;
+
+    body.innerHTML = `
+      <div class="cm-grid">
+        <div class="cm-main">
+          ${bodyText
+            ? `<div class="cm-section-label">Description</div>
+               <div class="cm-description">${esc(bodyText).replace(/\n/g, '<br>')}</div>`
+            : `<div class="cm-no-body">No description provided.</div>`}
+        </div>
+        <div class="cm-sidebar">
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Author</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="avatar sm" style="background:${oBg};color:${oFg}">${initials(item.user?.login||'')}</span>
+              <span class="cm-sidebar-val">${esc(item.user?.login||'—')}</span>
+            </div>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Reviewers</span>
+            <span class="cm-sidebar-val">${reviewerHtml}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Repository</span>
+            <span class="cm-sidebar-val">${esc(repoName)}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Opened</span>
+            <span class="cm-sidebar-val">${formatDate(item.created_at)} · ${timeAgo(item.created_at)}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Updated</span>
+            <span class="cm-sidebar-val">${timeAgo(item.updated_at)}</span>
+          </div>
+          <a class="cm-gh-link" href="${safeUrl(item.html_url)}" target="_blank" rel="noopener">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>`;
+
+  } else if (type === 'commit') {
+    const c      = detail.lastCommit;
+    const author = c?.commit?.author?.name || c?.author?.login || '—';
+    const date   = c?.commit?.author?.date;
+    const msg    = c?.commit?.message || '';
+    const sha    = c?.sha || '';
+    const [oBg, oFg] = AVATAR_COLORS[loginColorIdx(author)];
+
+    header.innerHTML = `
+      <div class="cm-meta">
+        <span class="cm-type">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
+          Commit
+        </span>
+        <span class="cm-ref" style="font-family:var(--font-mono)">${sha.slice(0,12)} · ${esc(repoName)}</span>
+        <span class="cm-date">${date ? formatDate(date) : ''}</span>
+      </div>
+      <div class="cm-title">${esc(msg.split('\n')[0])}</div>
+      <button class="cm-close" onclick="closeCardModal()">✕</button>`;
+
+    const fullMsg = msg.split('\n').slice(1).join('\n').trim();
+    body.innerHTML = `
+      <div class="cm-grid">
+        <div class="cm-main">
+          ${fullMsg
+            ? `<div class="cm-section-label">Commit body</div>
+               <div class="cm-description cm-description--mono">${esc(fullMsg)}</div>`
+            : `<div class="cm-no-body">No extended commit message.</div>`}
+        </div>
+        <div class="cm-sidebar">
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Author</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="avatar sm" style="background:${oBg};color:${oFg}">${initials(author)}</span>
+              <span class="cm-sidebar-val">${esc(author)}</span>
+            </div>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Repository</span>
+            <span class="cm-sidebar-val">${esc(repoName)}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">Date</span>
+            <span class="cm-sidebar-val">${date ? formatDate(date) + ' · ' + timeAgo(date) : '—'}</span>
+          </div>
+          <div class="cm-sidebar-row">
+            <span class="cm-sidebar-label">SHA</span>
+            <span class="cm-sidebar-val" style="font-family:var(--font-mono);font-size:11px">${sha.slice(0,12)}</span>
+          </div>
+          <a class="cm-gh-link" href="${safeUrl(c?.html_url)}" target="_blank" rel="noopener">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>`;
+  }
+
+  overlay.classList.add('is-open');
+  document.addEventListener('keydown', onModalKey);
+}
+
+function closeCardModal(e) {
+  if (e && e.target !== document.getElementById('card-modal-overlay')) return;
+  document.getElementById('card-modal-overlay').classList.remove('is-open');
+  document.removeEventListener('keydown', onModalKey);
+}
+
+function onModalKey(e) {
+  if (e.key === 'Escape') closeCardModal();
 }
 
 // ── Repos tab ──────────────────────────────────────────────
@@ -970,6 +1250,14 @@ function renderRepoCards(details) {
   });
 }
 </script>
+
+<!-- ── Card Detail Modal ─────────────────────────────────── -->
+<div id="card-modal-overlay" class="card-modal-overlay" onclick="closeCardModal(event)">
+  <div class="card-modal" id="card-modal">
+    <div class="card-modal-header" id="card-modal-header"></div>
+    <div class="card-modal-body" id="card-modal-body"></div>
+  </div>
+</div>
 
 </body>
 </html>
